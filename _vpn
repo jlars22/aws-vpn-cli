@@ -1,0 +1,30 @@
+#compdef vpn
+
+_vpn() {
+  local -a commands profiles
+
+  commands=(
+    'import:Import profiles from AWS VPN Client'
+    'list:List available profiles'
+    'status:Check VPN connection status'
+    'disconnect:Disconnect from VPN'
+    'logs:Show VPN connection logs'
+  )
+
+  local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
+  local profiles_file="$config_dir/profiles.json"
+
+  if [[ -f "$profiles_file" ]]; then
+    profiles=(${(f)"$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    profiles = json.load(f)
+for slug, p in sorted(profiles.items()):
+    print(f\"{slug}:{p['name']} ({p['region']})\")
+" "$profiles_file" 2>/dev/null)"})
+  fi
+
+  _describe -t commands 'command' commands -- profiles
+}
+
+_vpn "$@"

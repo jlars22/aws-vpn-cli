@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,22 +17,24 @@ func main() {
 
 func SAMLServer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		fmt.Fprintf(w, "Error: POST method expected, %s received", r.Method)
+		http.Error(w, "POST method expected", http.StatusMethodNotAllowed)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		fmt.Fprintf(w, "ParseForm() err: %v", err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 	SAMLResponse := r.FormValue("SAMLResponse")
 	if len(SAMLResponse) == 0 {
-		log.Printf("SAMLResponse field is empty or missing")
+		http.Error(w, "SAMLResponse field is empty or missing", http.StatusBadRequest)
 		return
 	}
 	if err := os.WriteFile("saml-response.txt", []byte(url.QueryEscape(SAMLResponse)), 0600); err != nil {
 		log.Printf("Failed to write SAML response: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	fmt.Fprintf(w, "<html><body><h2>Authentication successful!</h2><p>You can close this window.</p></body></html>")
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte("<html><body><h2>Authentication successful!</h2><p>You can close this window.</p></body></html>"))
 	log.Printf("Got SAMLResponse, saved to saml-response.txt")
 }

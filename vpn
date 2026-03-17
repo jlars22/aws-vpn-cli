@@ -2,10 +2,22 @@
 set -e
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
-INSTALL_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0")")" && pwd)"
+# Resolve symlinks to find actual install directory (portable, no readlink -f on macOS)
+_resolve_symlink() {
+  local target="$1"
+  while [[ -L "$target" ]]; do
+    local dir="$(cd "$(dirname "$target")" && pwd)"
+    target="$(readlink "$target")"
+    [[ "$target" != /* ]] && target="$dir/$target"
+  done
+  echo "$(cd "$(dirname "$target")" && pwd)"
+}
+INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
 OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
+PID_FILE="$CONFIG_DIR/vpn.pid"
+LOG_FILE="$CONFIG_DIR/vpn.log"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
 AWS_VPN_CLIENT_CONFIGS="$HOME/.config/AWSVPNClient/OpenVpnConfigs"
@@ -32,11 +44,13 @@ usage() {
   echo -e "${BOLD}Commands:${RESET}"
   echo -e "  ${CYAN}import${RESET}              Import profiles from AWS VPN Client"
   echo -e "  ${CYAN}list${RESET}                List available profiles"
-  echo -e "  ${CYAN}status${RESET}              Check VPN connection status"
   echo -e "  ${CYAN}<profile>${RESET}           Connect to a VPN profile"
+  echo -e "  ${CYAN}status${RESET}              Check VPN connection status"
+  echo -e "  ${CYAN}disconnect${RESET}          Disconnect from VPN"
+  echo -e "  ${CYAN}logs${RESET}                Show VPN connection logs"
   echo ""
   echo -e "Run ${CYAN}vpn import${RESET} after installing to pull profiles from the AWS VPN Client app."
-  exit 1
+  exit "${1:-0}"
 }
 
 cmd_import() {
@@ -141,17 +155,50 @@ else:
 }
 
 cmd_status() {
-  if echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"; then
-    local profile
-    profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
-    if [[ -n "$profile" ]]; then
-      success "VPN is ${GREEN}up${RESET} ${DIM}(${profile})${RESET}"
-    else
-      success "VPN is ${GREEN}up${RESET}"
-    fi
-  else
+  if ! is_connected; then
     info "VPN is ${DIM}down${RESET}"
+    return
   fi
+
+  local profile uptime
+  profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "acvc-openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
+
+  success "VPN is ${GREEN}up${RESET}${profile:+ ${DIM}(${profile})${RESET}}${uptime:+ ${DIM}— ${uptime}${RESET}}"
+}
+
+is_connected() {
+  echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"
+}
+
+cmd_disconnect() {
+  if ! is_connected; then
+    info "VPN is not connected"
+    exit 0
+  fi
+
+  local profile
+  profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+  step "Disconnecting${profile:+ from ${profile}}"
+  sudo pkill -f "acvc-openvpn.*aws-vpn-cli" 2>/dev/null || true
+  rm -f "$PID_FILE"
+
+  # Wait briefly for DNS to be restored by the down script
+  sleep 1
+
+  if is_connected; then
+    warn "VPN may still be connected — try ${CYAN}sudo killall acvc-openvpn${RESET}"
+  else
+    success "Disconnected"
+  fi
+}
+
+cmd_logs() {
+  if [[ ! -f "$LOG_FILE" ]]; then
+    info "No log file found"
+    exit 1
+  fi
+  tail -f "$LOG_FILE"
 }
 
 cmd_connect() {
@@ -160,6 +207,14 @@ cmd_connect() {
 
   if [[ ! -f "$profiles_file" ]]; then
     warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    exit 1
+  fi
+
+  if is_connected; then
+    local current
+    current=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+    warn "Already connected${current:+ to ${BOLD}$current${RESET}}"
+    info "Run ${CYAN}vpn disconnect${RESET} first"
     exit 1
   fi
 
@@ -208,18 +263,16 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   step "Starting SAML listener"
   local SAML_PID=""
-  local AUTH_FILE=""
-  cleanup() {
-    [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
-    rm -rf "$RUNTIME_DIR"
-    [[ -n "$AUTH_FILE" ]] && rm -f "$AUTH_FILE"
-  }
-  trap cleanup EXIT
-
   cd "$RUNTIME_DIR"
   "$SAML_SERVER" &
   SAML_PID=$!
   sleep 0.5
+
+  saml_cleanup() {
+    [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
+    rm -rf "$RUNTIME_DIR"
+  }
+  trap saml_cleanup EXIT
 
   # Random hostname prefix for the VPN gateway
   local RAND
@@ -238,13 +291,26 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   info "Getting SAML redirect URL..."
 
   local OVPN_OUT
-  OVPN_OUT=$("$OVPN_BIN" --config "$OVPN_CONF" --verb 3 \
-      --proto "$PROTO" --remote "${SRV}" "${VPN_PORT}" \
-      --auth-user-pass <(printf "%s\n%s\n" "N/A" "ACS::35001") \
-      2>&1 | grep AUTH_FAILED,CRV1) || true
+  local retries=3
+  while ((retries-- > 0)); do
+    OVPN_OUT=$("$OVPN_BIN" --config "$OVPN_CONF" --verb 3 \
+        --proto "$PROTO" --remote "${SRV}" "${VPN_PORT}" \
+        --server-poll-timeout 10 \
+        --auth-user-pass <(printf "%s\n%s\n" "N/A" "ACS::35001") \
+        2>&1 | grep AUTH_FAILED,CRV1) || true
+
+    if [[ -n "$OVPN_OUT" ]]; then
+      break
+    fi
+
+    if ((retries > 0)); then
+      warn "No response from server, retrying..."
+    fi
+  done
 
   if [[ -z "$OVPN_OUT" ]]; then
     err "Could not get SAML redirect URL from VPN endpoint"
+    info "Check your network connection and try again"
     exit 1
   fi
 
@@ -257,7 +323,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   local wait_seconds=30
   until test $((wait_seconds--)) -eq 0 -o -f "saml-response.txt"; do sleep 1; done
 
-  if [[ ! -f "saml-response.txt" ]]; then
+  if [[ ! -s "saml-response.txt" ]]; then
     err "SAML authentication timed out"
     exit 1
   fi
@@ -269,24 +335,64 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   step "Establishing VPN tunnel"
   info "sudo is required to create the tunnel interface"
 
-  # Write credentials to a temp file (sudo can't read process substitution fds)
+  # Write credentials to a temp file
+  local AUTH_FILE
   AUTH_FILE=$(mktemp)
+  cleanup() {
+    [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
+    rm -rf "$RUNTIME_DIR"
+    rm -f "$AUTH_FILE"
+  }
+  trap cleanup EXIT
+
   printf "%s\n%s\n" "N/A" "CRV1::${VPN_SID}::$(cat saml-response.txt)" > "$AUTH_FILE"
   chmod 600 "$AUTH_FILE"
 
+  # Kill SAML server — no longer needed
+  kill "$SAML_PID" 2>/dev/null || true
+  SAML_PID=""
+
+  # Start openvpn as a background daemon
+  : > "$LOG_FILE"
   sudo "$OVPN_BIN" --config "$OVPN_CONF" \
       --verb 3 --auth-nocache --inactive 3600 \
       --proto "$PROTO" --remote "$SRV" "$VPN_PORT" \
       --script-security 2 \
       --route-up "$INSTALL_DIR/route-up.sh" \
       --down "$INSTALL_DIR/dns-down.sh" \
-      --auth-user-pass "$AUTH_FILE"
+      --auth-user-pass "$AUTH_FILE" \
+      --log "$LOG_FILE" \
+      --writepid "$PID_FILE" \
+      --daemon aws-vpn-cli
+
+  # Wait for tunnel to come up
+  local attempts=20
+  while ((attempts-- > 0)); do
+    if is_connected; then
+      rm -f "$AUTH_FILE"
+      trap - EXIT
+      rm -rf "$RUNTIME_DIR"
+      success "Connected to ${BOLD}${PROFILE_NAME}${RESET}"
+      info "Run ${CYAN}vpn disconnect${RESET} to disconnect, ${CYAN}vpn logs${RESET} to view logs"
+      exit 0
+    fi
+    sleep 1
+  done
+
+  rm -f "$AUTH_FILE"
+  trap - EXIT
+  rm -rf "$RUNTIME_DIR"
+  success "Tunnel started ${DIM}(DNS may take a moment)${RESET}"
+  info "Run ${CYAN}vpn status${RESET} to check, ${CYAN}vpn logs${RESET} to debug"
 }
 
 case "${1:-}" in
-  import)       cmd_import ;;
-  list|ls)      cmd_list ;;
-  status)       cmd_status ;;
-  -h|--help|"") usage ;;
-  *)            cmd_connect "$1" ;;
+  import)            cmd_import ;;
+  list|ls)           cmd_list ;;
+  status)            cmd_status ;;
+  disconnect|down)   cmd_disconnect ;;
+  logs)              cmd_logs ;;
+  -h|--help)          usage 0 ;;
+  "")                 usage 1 ;;
+  *)                  cmd_connect "$1" ;;
 esac

@@ -1,5 +1,6 @@
 PREFIX ?= $(HOME)/.local/share/aws-vpn-cli
 BIN_DIR ?= /usr/local/bin
+ZSH_COMPLETIONS ?= /usr/local/share/zsh/site-functions
 
 .PHONY: build install uninstall clean
 
@@ -20,7 +21,9 @@ install: build
 	cp route-up.sh $(PREFIX)/route-up.sh
 	cp dns-down.sh $(PREFIX)/dns-down.sh
 	chmod +x $(PREFIX)/vpn $(PREFIX)/route-up.sh $(PREFIX)/dns-down.sh
+	sudo mkdir -p $(ZSH_COMPLETIONS)
 	sudo ln -sf $(PREFIX)/vpn $(BIN_DIR)/vpn
+	sudo cp _vpn $(ZSH_COMPLETIONS)/_vpn
 	@echo ""
 	@echo "✓ Installed! Run: vpn import"
 	@echo ""
@@ -28,7 +31,12 @@ install: build
 uninstall:
 	rm -rf $(PREFIX)
 	sudo rm -f $(BIN_DIR)/vpn
-	@echo "✓ Uninstalled"
+	sudo rm -f $(ZSH_COMPLETIONS)/_vpn
+	@echo "✓ Uninstalled (profiles kept in ~/.config/aws-vpn-cli/)"
+
+purge: uninstall
+	rm -rf $(HOME)/.config/aws-vpn-cli
+	@echo "✓ Profiles removed"
 
 clean:
 	rm -f saml-server
