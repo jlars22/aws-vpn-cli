@@ -27,9 +27,19 @@ $ vpn disconnect
 
 - macOS
 - [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn-download/) with at least one profile configured
-- [Go](https://go.dev/dl/) 1.21+
 
 ## Install
+
+```bash
+brew tap jlars22/tools
+brew install aws-vpn-cli
+vpn import
+```
+
+<details>
+<summary>Alternative: install from source</summary>
+
+Requires [Go](https://go.dev/dl/) 1.21+.
 
 ```bash
 git clone https://github.com/jlars22/aws-vpn-cli.git
@@ -37,6 +47,8 @@ cd aws-vpn-cli
 make install   # sudo for symlinking vpn to /usr/local/bin
 vpn import
 ```
+
+</details>
 
 ## Commands
 
