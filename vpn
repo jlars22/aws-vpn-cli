@@ -16,7 +16,7 @@ INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
 OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
-VERSION="0.1.0"
+VERSION="0.1.2"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
