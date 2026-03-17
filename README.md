@@ -4,7 +4,7 @@ Connect to AWS Client VPN from the terminal instead of the GUI app.
 
 Imports your existing profiles from the AWS VPN Client and handles the SAML authentication flow — opens browser, captures the token, establishes the tunnel.
 
-```
+```console
 $ vpn import
 ==> Importing profiles from AWS VPN Client
   ✓ Production EU -> production-eu
