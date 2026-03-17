@@ -33,6 +33,9 @@ uninstall:
 	rm -rf $(PREFIX)
 	sudo rm -f $(BIN_DIR)/vpn
 	sudo rm -f $(ZSH_COMPLETIONS)/_vpn
+	sudo rm -f /usr/local/lib/aws-vpn-cli/acvc-openvpn
+	sudo rmdir /usr/local/lib/aws-vpn-cli 2>/dev/null || true
+	sudo rm -f /etc/sudoers.d/aws-vpn-cli
 	@echo "✓ Uninstalled (profiles kept in ~/.config/aws-vpn-cli/)"
 
 purge: uninstall

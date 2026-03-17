@@ -13,10 +13,19 @@ _resolve_symlink() {
   echo "$(cd "$(dirname "$target")" && pwd)"
 }
 INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
-OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
+OVPN_BIN_DEFAULT="/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn"
+OVPN_BIN_SYMLINK="/usr/local/lib/aws-vpn-cli/acvc-openvpn"
+# Prefer the symlink (space-free path works with sudoers NOPASSWD rules)
+if [[ -z "${OVPN_BIN:-}" ]]; then
+  if [[ -x "$OVPN_BIN_SYMLINK" ]]; then
+    OVPN_BIN="$OVPN_BIN_SYMLINK"
+  else
+    OVPN_BIN="$OVPN_BIN_DEFAULT"
+  fi
+fi
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
-VERSION="0.2.0"
+VERSION="0.2.1"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
@@ -185,7 +194,7 @@ cmd_disconnect() {
   step "Disconnecting${profile:+ from ${profile}}"
 
   # Kill the openvpn process
-  sudo pkill -f "acvc-openvpn.*aws-vpn-cli" 2>/dev/null || true
+  env -u TERMINFO sudo pkill -f "acvc-openvpn.*aws-vpn-cli" 2>/dev/null || true
   rm -f "$PID_FILE"
 
   # Wait briefly for the down script to restore DNS
@@ -193,7 +202,7 @@ cmd_disconnect() {
 
   # Clean up DNS if the down script didn't run
   if is_connected; then
-    sudo scutil <<-EOF
+    env -u TERMINFO sudo scutil <<-EOF
 	remove State:/Network/Service/openvpn/DNS
 	EOF
   fi
@@ -365,7 +374,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   # Start openvpn as a background daemon
   : > "$LOG_FILE"
-  sudo "$OVPN_BIN" --config "$OVPN_CONF" \
+  env -u TERMINFO sudo "$OVPN_BIN" --config "$OVPN_CONF" \
       --verb 3 --auth-nocache --inactive 3600 \
       --proto "$PROTO" --remote "$SRV" "$VPN_PORT" \
       --script-security 2 \
@@ -399,18 +408,19 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
 cmd_setup_sudo() {
   local sudoers_file="/etc/sudoers.d/aws-vpn-cli"
+  local symlink_dir="/usr/local/lib/aws-vpn-cli"
+  local symlink_path="$symlink_dir/acvc-openvpn"
 
-  if [[ -f "$sudoers_file" ]]; then
+  if [[ -f "$sudoers_file" ]] && sudo -n "$symlink_path" --version > /dev/null 2>&1; then
     success "Passwordless sudo is already configured"
-    info "To remove: sudo rm $sudoers_file"
+    info "To remove: sudo rm $sudoers_file $symlink_path"
     return
   fi
 
   step "Setting up passwordless sudo for vpn"
-  info "This creates ${BOLD}${sudoers_file}${RESET} allowing:"
-  echo -e "  - OpenVPN (to create the tunnel interface)"
-  echo -e "  - pkill (to stop the tunnel on disconnect)"
-  echo -e "  - scutil (to manage DNS)"
+  info "This will:"
+  echo -e "  - Symlink the OpenVPN binary to ${BOLD}${symlink_path}${RESET}"
+  echo -e "  - Create ${BOLD}${sudoers_file}${RESET} allowing openvpn, pkill, and scutil without a password"
   echo ""
 
   read -rp "Proceed? [y/N] " confirm
@@ -419,10 +429,14 @@ cmd_setup_sudo() {
     return
   fi
 
+  # Create a symlink at a space-free path (sudoers can't handle spaces in commands)
+  sudo mkdir -p "$symlink_dir"
+  sudo ln -sf "$OVPN_BIN" "$symlink_path"
+
   local rule
   rule=$(cat <<SUDOERS
 # Allow aws-vpn-cli to manage VPN connections without a password
-%staff ALL=(root) NOPASSWD: $OVPN_BIN *
+%staff ALL=(root) NOPASSWD: $symlink_path *
 %staff ALL=(root) NOPASSWD: /usr/bin/pkill -f acvc-openvpn*
 %staff ALL=(root) NOPASSWD: /usr/sbin/scutil
 SUDOERS
