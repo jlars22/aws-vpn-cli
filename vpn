@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+set -e
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
+SAML_SERVER="$INSTALL_DIR/saml-server"
+PROTO=udp
+
+AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
+AWS_VPN_CLIENT_CONFIGS="$HOME/.config/AWSVPNClient/OpenVpnConfigs"
+
+# Colors
+BOLD='\033[1m'
+DIM='\033[2m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+
+info()    { echo -e "${CYAN}>${RESET} $*"; }
+step()    { echo -e "${BLUE}==>${RESET}${BOLD} $*${RESET}"; }
+success() { echo -e "${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "${YELLOW}!${RESET} $*"; }
+err()     { echo -e "${RED}✗${RESET} $*" >&2; }
+
+usage() {
+  echo -e "${BOLD}Usage:${RESET} vpn <command>"
+  echo ""
+  echo -e "${BOLD}Commands:${RESET}"
+  echo -e "  ${CYAN}import${RESET}              Import profiles from AWS VPN Client"
+  echo -e "  ${CYAN}list${RESET}                List available profiles"
+  echo -e "  ${CYAN}status${RESET}              Check VPN connection status"
+  echo -e "  ${CYAN}<profile>${RESET}           Connect to a VPN profile"
+  echo ""
+  echo -e "Run ${CYAN}vpn import${RESET} after installing to pull profiles from the AWS VPN Client app."
+  exit 1
+}
+
+cmd_import() {
+  if [[ ! -f "$AWS_VPN_CLIENT_PROFILES" ]]; then
+    err "AWS VPN Client profiles not found at:"
+    echo "  $AWS_VPN_CLIENT_PROFILES"
+    echo ""
+    info "Make sure the AWS VPN Client is installed and has at least one connection configured."
+    exit 1
+  fi
+
+  step "Importing profiles from AWS VPN Client"
+  mkdir -p "$CONFIG_DIR/configs"
+
+  export AWS_VPN_CLIENT_PROFILES CONFIG_DIR
+  python3 << 'PYEOF'
+import json, re, os, sys
+
+profiles_path = os.environ["AWS_VPN_CLIENT_PROFILES"]
+config_dir = os.environ["CONFIG_DIR"]
+
+with open(profiles_path) as f:
+    data = json.load(f)
+
+profiles = {}
+for p in data.get("ConnectionProfiles", []):
+    name = p["ProfileName"]
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    config_path = p["OvpnConfigFilePath"]
+
+    if not os.path.exists(config_path):
+        print(f"  Skipped: {name} (config not found at {config_path})", file=sys.stderr)
+        continue
+
+    with open(config_path) as cf:
+        config = cf.read()
+
+    # Extract remote host and port from the config
+    remote_match = re.search(r"^remote\s+(\S+)\s+(\d+)", config, re.MULTILINE)
+    if not remote_match:
+        print(f"  Skipped: {name} (no 'remote' line in config)", file=sys.stderr)
+        continue
+
+    host = remote_match.group(1)
+    port = int(remote_match.group(2))
+
+    # Strip lines that the vpn script handles itself
+    stripped = []
+    for line in config.splitlines():
+        s = line.strip()
+        if re.match(r"^remote\s+\S+\s+\d+", s):
+            continue
+        if s == "remote-random-hostname":
+            continue
+        if s == "auth-user-pass":
+            continue
+        if s.startswith("auth-retry"):
+            continue
+        stripped.append(line)
+
+    adapted = "\n".join(stripped).strip() + "\n"
+
+    out_path = os.path.join(config_dir, "configs", f"{slug}.conf")
+    with open(out_path, "w") as out:
+        out.write(adapted)
+
+    profiles[slug] = {
+        "name": name,
+        "host": host,
+        "port": port,
+        "endpoint_id": p.get("CvpnEndpointId", ""),
+        "region": p.get("CvpnEndpointRegion", ""),
+    }
+    print(f"  \033[0;32m✓\033[0m {name} \033[2m->\033[0m \033[0;36m{slug}\033[0m")
+
+out_file = os.path.join(config_dir, "profiles.json")
+with open(out_file, "w") as f:
+    json.dump(profiles, f, indent=2)
+
+print(f"\n\033[0;32m✓\033[0m {len(profiles)} profile(s) imported to {config_dir}")
+PYEOF
+}
+
+cmd_list() {
+  local profiles_file="$CONFIG_DIR/profiles.json"
+  if [[ ! -f "$profiles_file" ]]; then
+    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    exit 1
+  fi
+
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    profiles = json.load(f)
+if not profiles:
+    print('No profiles found.')
+else:
+    for slug in sorted(profiles):
+        p = profiles[slug]
+        print(f\"  \033[0;36m{slug:25s}\033[0m {p['name']} \033[2m({p['region']})\033[0m\")
+" "$profiles_file"
+}
+
+cmd_status() {
+  if echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"; then
+    local profile
+    profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+    if [[ -n "$profile" ]]; then
+      success "VPN is ${GREEN}up${RESET} ${DIM}(${profile})${RESET}"
+    else
+      success "VPN is ${GREEN}up${RESET}"
+    fi
+  else
+    info "VPN is ${DIM}down${RESET}"
+  fi
+}
+
+cmd_connect() {
+  local profile="$1"
+  local profiles_file="$CONFIG_DIR/profiles.json"
+
+  if [[ ! -f "$profiles_file" ]]; then
+    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    exit 1
+  fi
+
+  # Read profile info
+  local profile_info
+  profile_info=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    profiles = json.load(f)
+slug = sys.argv[2]
+if slug not in profiles:
+    sys.exit(1)
+p = profiles[slug]
+print(f\"{p['host']}|{p['port']}|{p['name']}\")
+" "$profiles_file" "$profile" 2>/dev/null) || {
+    err "Unknown profile '${BOLD}$profile${RESET}'"
+    echo ""
+    info "Available profiles:"
+    cmd_list
+    exit 1
+  }
+
+  local VPN_HOST VPN_PORT PROFILE_NAME
+  IFS='|' read -r VPN_HOST VPN_PORT PROFILE_NAME <<< "$profile_info"
+  local OVPN_CONF="$CONFIG_DIR/configs/${profile}.conf"
+
+  if [[ ! -f "$OVPN_CONF" ]]; then
+    err "Config file not found: $OVPN_CONF"
+    info "Try running ${CYAN}vpn import${RESET} to re-import profiles."
+    exit 1
+  fi
+
+  if [[ ! -x "$OVPN_BIN" ]]; then
+    err "OpenVPN binary not found at: ${BOLD}$OVPN_BIN${RESET}"
+    info "Set ${CYAN}OVPN_BIN${RESET} to point to an OpenVPN 2.6.x binary."
+    exit 1
+  fi
+
+  local RUNTIME_DIR
+  RUNTIME_DIR=$(mktemp -d -t aws-vpn)
+
+  # Kill any stale SAML server from a previous run
+  for pid in $(lsof -ti :35001 2>/dev/null); do
+    kill "$pid" 2>/dev/null || true
+  done
+
+  step "Starting SAML listener"
+  local SAML_PID=""
+  local AUTH_FILE=""
+  cleanup() {
+    [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
+    rm -rf "$RUNTIME_DIR"
+    [[ -n "$AUTH_FILE" ]] && rm -f "$AUTH_FILE"
+  }
+  trap cleanup EXIT
+
+  cd "$RUNTIME_DIR"
+  "$SAML_SERVER" &
+  SAML_PID=$!
+  sleep 0.5
+
+  # Random hostname prefix for the VPN gateway
+  local RAND
+  RAND=$(openssl rand -hex 12)
+
+  # Resolve hostname to IP (need persistent IP for both connection phases)
+  local SRV
+  SRV=$(dig a +short "${RAND}.${VPN_HOST}" | head -n1)
+  if [[ -z "$SRV" ]]; then
+    err "Could not resolve VPN host: ${VPN_HOST}"
+    exit 1
+  fi
+
+  step "Connecting to ${PROFILE_NAME}"
+  info "Resolved ${DIM}${VPN_HOST}${RESET} -> ${BOLD}${SRV}:${VPN_PORT}${RESET}"
+  info "Getting SAML redirect URL..."
+
+  local OVPN_OUT
+  OVPN_OUT=$("$OVPN_BIN" --config "$OVPN_CONF" --verb 3 \
+      --proto "$PROTO" --remote "${SRV}" "${VPN_PORT}" \
+      --auth-user-pass <(printf "%s\n%s\n" "N/A" "ACS::35001") \
+      2>&1 | grep AUTH_FAILED,CRV1) || true
+
+  if [[ -z "$OVPN_OUT" ]]; then
+    err "Could not get SAML redirect URL from VPN endpoint"
+    exit 1
+  fi
+
+  step "Opening browser for SAML authentication"
+  local URL
+  URL=$(echo "$OVPN_OUT" | grep -Eo 'https://.+')
+  open "$URL"
+
+  info "Waiting for SAML response ${DIM}(up to 30s)${RESET}..."
+  local wait_seconds=30
+  until test $((wait_seconds--)) -eq 0 -o -f "saml-response.txt"; do sleep 1; done
+
+  if [[ ! -f "saml-response.txt" ]]; then
+    err "SAML authentication timed out"
+    exit 1
+  fi
+
+  local VPN_SID
+  VPN_SID=$(echo "$OVPN_OUT" | awk -F : '{print $7}')
+
+  success "SAML authentication successful!"
+  step "Establishing VPN tunnel"
+  info "sudo is required to create the tunnel interface"
+
+  # Write credentials to a temp file (sudo can't read process substitution fds)
+  AUTH_FILE=$(mktemp)
+  printf "%s\n%s\n" "N/A" "CRV1::${VPN_SID}::$(cat saml-response.txt)" > "$AUTH_FILE"
+  chmod 600 "$AUTH_FILE"
+
+  sudo "$OVPN_BIN" --config "$OVPN_CONF" \
+      --verb 3 --auth-nocache --inactive 3600 \
+      --proto "$PROTO" --remote "$SRV" "$VPN_PORT" \
+      --script-security 2 \
+      --route-up "$INSTALL_DIR/route-up.sh" \
+      --down "$INSTALL_DIR/dns-down.sh" \
+      --auth-user-pass "$AUTH_FILE"
+}
+
+case "${1:-}" in
+  import)       cmd_import ;;
+  list|ls)      cmd_list ;;
+  status)       cmd_status ;;
+  -h|--help|"") usage ;;
+  *)            cmd_connect "$1" ;;
+esac
