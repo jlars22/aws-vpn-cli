@@ -1,24 +1,26 @@
 # aws-vpn-cli
 
-Connect to AWS Client VPN from the terminal instead of the GUI app.
-
-Imports your existing profiles from the AWS VPN Client and handles the SAML authentication flow — opens browser, captures the token, establishes the tunnel.
+I got tired of the AWS VPN Client UI so I built this. It lets you connect to AWS Client VPN entirely from the terminal — just import your existing profiles from the AWS VPN Client app and go.
 
 ```console
 $ vpn import
 ==> Importing profiles from AWS VPN Client
   ✓ Production EU -> production-eu
   ✓ Staging -> staging
+✓ 2 profile(s) imported
 
 $ vpn staging
 ==> Connecting to Staging
-> Resolved cvpn-endpoint-xxx...amazonaws.com -> 3.78.110.52:443
 ==> Opening browser for SAML authentication
 ✓ SAML authentication successful!
-==> Establishing VPN tunnel
+✓ Connected to Staging
 
 $ vpn status
-✓ VPN is up (staging)
+✓ VPN is up (staging) — 03:42
+
+$ vpn disconnect
+==> Disconnecting from staging
+✓ Disconnected
 ```
 
 ## Requirements
@@ -44,12 +46,15 @@ vpn import
 | `vpn list` | List available profiles |
 | `vpn <profile>` | Connect (runs in background) |
 | `vpn status` | Show connection status |
+| `vpn switch <profile>` | Disconnect and reconnect to a different profile |
 | `vpn disconnect` | Disconnect |
 | `vpn logs` | Tail the connection log |
 
+Tab completion is available for zsh — restart your shell after installing.
+
 ## How does it work?
 
-It uses the OpenVPN binary that ships inside the AWS VPN Client app — no separate OpenVPN install needed. The SAML flow is handled by a small Go server that listens for the SSO callback.
+It reuses the OpenVPN binary that ships inside the AWS VPN Client app and your existing connection profiles — no separate OpenVPN install, no manual config. The SAML authentication flow is handled by a small Go server that captures the SSO callback from your browser.
 
 > [!NOTE]
-> Homebrew's OpenVPN (2.7.x and 2.6.19) doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.
+> Homebrew's OpenVPN doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.

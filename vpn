@@ -16,6 +16,7 @@ INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
 OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
+VERSION="0.1.0"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
@@ -46,6 +47,7 @@ usage() {
   echo -e "  ${CYAN}list${RESET}                List available profiles"
   echo -e "  ${CYAN}<profile>${RESET}           Connect to a VPN profile"
   echo -e "  ${CYAN}status${RESET}              Check VPN connection status"
+  echo -e "  ${CYAN}switch${RESET} ${DIM}<profile>${RESET}    Switch to a different profile"
   echo -e "  ${CYAN}disconnect${RESET}          Disconnect from VPN"
   echo -e "  ${CYAN}logs${RESET}                Show VPN connection logs"
   echo ""
@@ -391,13 +393,25 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   info "Run ${CYAN}vpn status${RESET} to check, ${CYAN}vpn logs${RESET} to debug"
 }
 
+cmd_switch() {
+  local profile="${1:-}"
+  if [[ -z "$profile" ]]; then
+    err "Usage: vpn switch <profile>"
+    exit 1
+  fi
+  cmd_disconnect 2>/dev/null || true
+  cmd_connect "$profile"
+}
+
 case "${1:-}" in
   import)            cmd_import ;;
   list|ls)           cmd_list ;;
   status)            cmd_status ;;
+  switch)            cmd_switch "$2" ;;
   disconnect|down)   cmd_disconnect ;;
   logs)              cmd_logs ;;
-  -h|--help)          usage 0 ;;
-  "")                 usage 1 ;;
-  *)                  cmd_connect "$1" ;;
+  -v|--version)      echo "aws-vpn-cli $VERSION" ;;
+  -h|--help)         usage 0 ;;
+  "")                usage 1 ;;
+  *)                 cmd_connect "$1" ;;
 esac

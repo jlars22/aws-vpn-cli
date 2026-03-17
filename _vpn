@@ -7,6 +7,7 @@ _vpn() {
     'import:Import profiles from AWS VPN Client'
     'list:List available profiles'
     'status:Check VPN connection status'
+    'switch:Switch to a different profile'
     'disconnect:Disconnect from VPN'
     'logs:Show VPN connection logs'
   )
