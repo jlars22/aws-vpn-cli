@@ -51,7 +51,3 @@ It uses the OpenVPN binary that ships inside the AWS VPN Client app — no separ
 
 > [!NOTE]
 > Homebrew's OpenVPN (2.7.x and 2.6.19) doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.
-
-## License
-
-MIT
