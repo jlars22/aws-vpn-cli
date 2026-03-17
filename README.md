@@ -1,6 +1,6 @@
 # aws-vpn-cli
 
-I got tired of the AWS VPN Client UI so I built this. It lets you connect to AWS Client VPN entirely from the terminal — just import your existing profiles from the AWS VPN Client app and go.
+A simple CLI alternative to the AWS VPN Client UI. Import your existing profiles and connect entirely from the terminal.
 
 ```console
 $ vpn import
