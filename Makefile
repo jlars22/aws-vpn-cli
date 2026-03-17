@@ -12,7 +12,7 @@ saml-server: server.go
 install: build
 	@if [ ! -d "/Applications/AWS VPN Client" ]; then \
 		echo "✗ AWS VPN Client is not installed."; \
-		echo "  Download it from: https://aws.amazon.com/vpn/client-vpn-download/"; \
+		echo "  Download it from: https://aws.amazon.com/vpn/client-vpn/"; \
 		exit 1; \
 	fi
 	mkdir -p $(PREFIX)

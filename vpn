@@ -25,7 +25,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
 fi
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
-VERSION="0.2.1"
+VERSION="0.3.0"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
@@ -49,28 +49,25 @@ warn()    { echo -e "${YELLOW}!${RESET} $*"; }
 err()     { echo -e "${RED}✗${RESET} $*" >&2; }
 
 usage() {
-  echo -e "${BOLD}Usage:${RESET} vpn <command>"
+  echo -e "${BOLD}Usage:${RESET} vpn ${DIM}[command]${RESET}"
+  echo ""
+  echo -e "  ${CYAN}vpn${RESET}                 Select a profile to connect/disconnect"
+  echo -e "  ${CYAN}vpn${RESET} ${DIM}<profile>${RESET}       Connect directly to a profile"
   echo ""
   echo -e "${BOLD}Commands:${RESET}"
-  echo -e "  ${CYAN}import${RESET}              Import profiles from AWS VPN Client"
-  echo -e "  ${CYAN}list${RESET}                List available profiles"
-  echo -e "  ${CYAN}<profile>${RESET}           Connect to a VPN profile"
-  echo -e "  ${CYAN}status${RESET}              Check VPN connection status"
-  echo -e "  ${CYAN}switch${RESET} ${DIM}<profile>${RESET}    Switch to a different profile"
+  echo -e "  ${CYAN}status${RESET}              Show connection status"
   echo -e "  ${CYAN}disconnect${RESET}          Disconnect from VPN"
-  echo -e "  ${CYAN}logs${RESET}                Show VPN connection logs"
-  echo -e "  ${CYAN}setup-sudo${RESET}          Allow vpn to run without password prompts"
-  echo ""
-  echo -e "Run ${CYAN}vpn import${RESET} after installing to pull profiles from the AWS VPN Client app."
+  echo -e "  ${CYAN}list${RESET}                List available profiles"
+  echo -e "  ${CYAN}import${RESET}              Import profiles from AWS VPN Client"
+  echo -e "  ${CYAN}logs${RESET}                Tail the connection log"
+  echo -e "  ${CYAN}setup-sudo${RESET}          Skip password prompts"
   exit "${1:-0}"
 }
 
 cmd_import() {
   if [[ ! -f "$AWS_VPN_CLIENT_PROFILES" ]]; then
-    err "AWS VPN Client profiles not found at:"
-    echo "  $AWS_VPN_CLIENT_PROFILES"
-    echo ""
-    info "Make sure the AWS VPN Client is installed and has at least one connection configured."
+    err "AWS VPN Client is not installed or has no profiles configured"
+    info "Install it from ${CYAN}https://aws.amazon.com/vpn/client-vpn/${RESET}"
     exit 1
   fi
 
@@ -142,55 +139,159 @@ out_file = os.path.join(config_dir, "profiles.json")
 with open(out_file, "w") as f:
     json.dump(profiles, f, indent=2)
 
-print(f"\n\033[0;32m✓\033[0m {len(profiles)} profile(s) imported to {config_dir}")
+print(f"\n\033[0;32m✓\033[0m {len(profiles)} profile(s) imported")
 PYEOF
 }
 
-cmd_list() {
+_load_profiles() {
+  # Outputs "slug|name|region" lines, one per profile
   local profiles_file="$CONFIG_DIR/profiles.json"
   if [[ ! -f "$profiles_file" ]]; then
-    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
-    exit 1
+    return 1
   fi
-
   python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     profiles = json.load(f)
-if not profiles:
-    print('No profiles found.')
-else:
-    for slug in sorted(profiles):
-        p = profiles[slug]
-        print(f\"  \033[0;36m{slug:25s}\033[0m {p['name']} \033[2m({p['region']})\033[0m\")
+for slug in sorted(profiles):
+    p = profiles[slug]
+    print(f\"{slug}|{p['name']}|{p['region']}\")
 " "$profiles_file"
+}
+
+cmd_list() {
+  local lines
+  lines=$(_load_profiles) || {
+    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    exit 1
+  }
+
+  if [[ -z "$lines" ]]; then
+    info "No profiles found."
+    return
+  fi
+
+  while IFS='|' read -r slug name region; do
+    printf "  ${CYAN}%-25s${RESET} %s ${DIM}(%s)${RESET}\n" "$slug" "$name" "$region"
+  done <<< "$lines"
+}
+
+cmd_select() {
+  local lines
+  lines=$(_load_profiles 2>/dev/null) || true
+
+  if [[ -z "$lines" ]]; then
+    info "No profiles found."
+    read -rp "Import from AWS VPN Client? [Y/n] " confirm
+    if [[ "$confirm" != [nN] ]]; then
+      cmd_import
+      lines=$(_load_profiles) || {
+        err "Import succeeded but no profiles found"
+        exit 1
+      }
+    else
+      exit 0
+    fi
+  fi
+
+  local slug active
+  active=$(_active_profile)
+  if command -v fzf > /dev/null 2>&1; then
+    # Put active profile first so fzf cursor starts on it
+    slug=$(echo "$lines" | while IFS='|' read -r s name region; do
+      if [[ "$s" == "$active" ]]; then
+        printf "%s\t%s (%s) ${GREEN}● connected${RESET}\n" "$s" "$name" "$region"
+      else
+        printf "%s\t%s (%s)\n" "$s" "$name" "$region"
+      fi
+    done | awk -v active="$active" 'index($0, active"\t") == 1 {first=$0; next} {rest[++n]=$0} END {if(first) print first; for(i=1;i<=n;i++) print rest[i]}' \
+    | fzf --ansi --height=~10 --layout=reverse --prompt="VPN > " --no-info \
+      --color="pointer:cyan,prompt:blue,hl:cyan,hl+:cyan,fg+:white:bold,pointer:cyan" | awk '{print $1}')
+  else
+    # Fallback: bash select
+    local -a slugs names
+    while IFS='|' read -r s name region; do
+      slugs+=("$s")
+      names+=("$name ($region)")
+    done <<< "$lines"
+
+    echo -e "${BOLD}Select a profile:${RESET}"
+    PS3="> "
+    select choice in "${names[@]}"; do
+      if [[ -n "$choice" ]]; then
+        slug="${slugs[$((REPLY - 1))]}"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$slug" ]]; then
+    info "Cancelled"
+    exit 0
+  fi
+
+  if [[ "$slug" == "$active" ]]; then
+    cmd_disconnect
+    return
+  fi
+
+  if [[ -n "$active" ]]; then
+    cmd_disconnect
+  fi
+
+  cmd_connect "$slug"
 }
 
 cmd_status() {
   if ! is_connected; then
-    info "VPN is ${DIM}down${RESET}"
+    info "Not connected"
     return
   fi
 
   local profile uptime
-  profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+  profile=$(_active_profile)
   uptime=$(ps -eo etime=,args= 2>/dev/null | grep "acvc-openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
 
-  success "VPN is ${GREEN}up${RESET}${profile:+ ${DIM}(${profile})${RESET}}${uptime:+ ${DIM}— ${uptime}${RESET}}"
+  success "Connected to ${BOLD}${profile}${RESET}${uptime:+ ${DIM}(${uptime})${RESET}}"
+}
+
+_has_vpn_dns() {
+  echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"
+}
+
+_has_vpn_process() {
+  pgrep -f "acvc-openvpn.*aws-vpn-cli" > /dev/null 2>&1
 }
 
 is_connected() {
-  echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"
+  if _has_vpn_dns; then
+    if _has_vpn_process; then
+      return 0
+    fi
+    # Stale DNS entry — process died but DNS wasn't cleaned up
+    warn "Cleaning up stale connection"
+    env -u TERMINFO sudo scutil <<-EOF
+	remove State:/Network/Service/openvpn/DNS
+	EOF
+    rm -f "$PID_FILE"
+    return 1
+  fi
+  return 1
+}
+
+_active_profile() {
+  ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||'
 }
 
 cmd_disconnect() {
   if ! is_connected; then
-    info "VPN is not connected"
-    exit 0
+    info "Not connected"
+    return 0
   fi
 
-  local profile
-  profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+  local profile uptime
+  profile=$(_active_profile)
+  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "acvc-openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
   step "Disconnecting${profile:+ from ${profile}}"
 
   # Kill the openvpn process
@@ -207,7 +308,7 @@ cmd_disconnect() {
 	EOF
   fi
 
-  success "Disconnected"
+  success "Disconnected${uptime:+ ${DIM}(was connected ${uptime})${RESET}}"
 }
 
 cmd_logs() {
@@ -229,9 +330,9 @@ cmd_connect() {
 
   if is_connected; then
     local current
-    current=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
+    current=$(_active_profile)
     warn "Already connected${current:+ to ${BOLD}$current${RESET}}"
-    info "Run ${CYAN}vpn disconnect${RESET} first"
+    info "Run ${CYAN}vpn${RESET} to switch or disconnect"
     exit 1
   fi
 
@@ -259,14 +360,14 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   local OVPN_CONF="$CONFIG_DIR/configs/${profile}.conf"
 
   if [[ ! -f "$OVPN_CONF" ]]; then
-    err "Config file not found: $OVPN_CONF"
-    info "Try running ${CYAN}vpn import${RESET} to re-import profiles."
+    err "Config file missing for ${BOLD}${profile}${RESET}"
+    info "Run ${CYAN}vpn import${RESET} to re-import profiles"
     exit 1
   fi
 
   if [[ ! -x "$OVPN_BIN" ]]; then
-    err "OpenVPN binary not found at: ${BOLD}$OVPN_BIN${RESET}"
-    info "Set ${CYAN}OVPN_BIN${RESET} to point to an OpenVPN 2.6.x binary."
+    err "AWS VPN Client is not installed"
+    info "Install it from ${CYAN}https://aws.amazon.com/vpn/client-vpn/${RESET}"
     exit 1
   fi
 
@@ -278,7 +379,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
     kill "$pid" 2>/dev/null || true
   done
 
-  step "Starting SAML listener"
+  step "Authenticating"
   local SAML_PID=""
   cd "$RUNTIME_DIR"
   "$SAML_SERVER" &
@@ -303,9 +404,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
     exit 1
   fi
 
-  step "Connecting to ${PROFILE_NAME}"
-  info "Resolved ${DIM}${VPN_HOST}${RESET} -> ${BOLD}${SRV}:${VPN_PORT}${RESET}"
-  info "Getting SAML redirect URL..."
+  info "Connecting to ${BOLD}${PROFILE_NAME}${RESET}..."
 
   local OVPN_OUT
   local retries=3
@@ -326,33 +425,32 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   done
 
   if [[ -z "$OVPN_OUT" ]]; then
-    err "Could not get SAML redirect URL from VPN endpoint"
+    err "Could not reach VPN endpoint"
     info "Check your network connection and try again"
     exit 1
   fi
 
-  step "Opening browser for SAML authentication"
+  step "Opening browser for SSO"
   local URL
   URL=$(echo "$OVPN_OUT" | grep -Eo 'https://.+')
   open "$URL"
 
-  info "Waiting for SAML response ${DIM}(up to 30s)${RESET}..."
+  info "Waiting for authentication..."
   local wait_seconds=30
   until test $((wait_seconds--)) -eq 0 -o -f "saml-response.txt"; do sleep 1; done
 
   if [[ ! -s "saml-response.txt" ]]; then
-    err "SAML authentication timed out"
+    err "Authentication timed out"
     exit 1
   fi
 
   local VPN_SID
   VPN_SID=$(echo "$OVPN_OUT" | awk -F : '{print $7}')
 
-  success "SAML authentication successful!"
-  step "Establishing VPN tunnel"
+  success "Authenticated"
+  step "Establishing tunnel"
   if [[ ! -f /etc/sudoers.d/aws-vpn-cli ]]; then
-    info "sudo is required to create the tunnel interface"
-    info "Run ${CYAN}vpn setup-sudo${RESET} to skip this in the future"
+    info "Password required for tunnel — run ${CYAN}vpn setup-sudo${RESET} to skip"
   fi
 
   # Write credentials to a temp file
@@ -393,7 +491,6 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
       trap - EXIT
       rm -rf "$RUNTIME_DIR"
       success "Connected to ${BOLD}${PROFILE_NAME}${RESET}"
-      info "Run ${CYAN}vpn disconnect${RESET} to disconnect, ${CYAN}vpn logs${RESET} to view logs"
       exit 0
     fi
     sleep 1
@@ -403,7 +500,6 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   trap - EXIT
   rm -rf "$RUNTIME_DIR"
   success "Tunnel started ${DIM}(DNS may take a moment)${RESET}"
-  info "Run ${CYAN}vpn status${RESET} to check, ${CYAN}vpn logs${RESET} to debug"
 }
 
 cmd_setup_sudo() {
@@ -453,29 +549,35 @@ SUDOERS
     exit 1
   fi
 
-  success "Done! vpn connect/disconnect will no longer ask for your password"
+  success "Password prompts disabled"
 }
 
-cmd_switch() {
-  local profile="${1:-}"
-  if [[ -z "$profile" ]]; then
-    err "Usage: vpn switch <profile>"
-    exit 1
-  fi
-  cmd_disconnect 2>/dev/null || true
-  cmd_connect "$profile"
+_is_profile() {
+  local profiles_file="$CONFIG_DIR/profiles.json"
+  [[ -f "$profiles_file" ]] && python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    profiles = json.load(f)
+sys.exit(0 if sys.argv[2] in profiles else 1)
+" "$profiles_file" "$1" 2>/dev/null
 }
 
 case "${1:-}" in
   import)            cmd_import ;;
   list|ls)           cmd_list ;;
   status)            cmd_status ;;
-  switch)            cmd_switch "$2" ;;
   disconnect|down)   cmd_disconnect ;;
   setup-sudo)        cmd_setup_sudo ;;
   logs)              cmd_logs ;;
   -v|--version)      echo "aws-vpn-cli $VERSION" ;;
   -h|--help)         usage 0 ;;
-  "")                usage 1 ;;
-  *)                 cmd_connect "$1" ;;
+  "")                cmd_select ;;
+  *)
+    if _is_profile "$1"; then
+      cmd_connect "$1"
+    else
+      err "Unknown command '${BOLD}$1${RESET}' — run ${CYAN}vpn --help${RESET} for usage"
+      exit 1
+    fi
+    ;;
 esac

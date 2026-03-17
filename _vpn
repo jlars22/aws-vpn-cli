@@ -6,11 +6,10 @@ _vpn() {
   commands=(
     'import:Import profiles from AWS VPN Client'
     'list:List available profiles'
-    'status:Check VPN connection status'
-    'switch:Switch to a different profile'
+    'status:Show connection status'
     'disconnect:Disconnect from VPN'
-    'logs:Show VPN connection logs'
-    'setup-sudo:Allow vpn to run without password prompts'
+    'logs:Tail the connection log'
+    'setup-sudo:Skip password prompts'
   )
 
   local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
@@ -26,14 +25,7 @@ for slug, p in sorted(profiles.items()):
 " "$profiles_file" 2>/dev/null)"})
   fi
 
-  case "$words[2]" in
-    switch)
-      _describe -t profiles 'profile' profiles
-      ;;
-    *)
-      _describe -t commands 'command' commands -- profiles
-      ;;
-  esac
+  _describe -t commands 'command' commands -- profiles
 }
 
 _vpn "$@"

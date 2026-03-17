@@ -3,37 +3,37 @@
 A simple CLI alternative to the AWS VPN Client UI. Import your existing profiles and connect entirely from the terminal.
 
 ```console
-$ vpn import
-==> Importing profiles from AWS VPN Client
-  ✓ Production EU -> production-eu
-  ✓ Staging -> staging
-✓ 2 profile(s) imported
+$ vpn
+VPN >
+  dev          Development (eu-central-1)
+> production   Production (eu-central-1) ● connected
+  staging      Staging (eu-central-1)
+```
 
+Run `vpn` to open an interactive profile picker. Select a profile to connect, select the active one to disconnect. That's it.
+
+You can also connect directly:
+
+```console
 $ vpn staging
-==> Connecting to Staging
-==> Opening browser for SAML authentication
-✓ SAML authentication successful!
+==> Authenticating
+==> Opening browser for SSO
+✓ Authenticated
+==> Establishing tunnel
 ✓ Connected to Staging
-
-$ vpn status
-✓ VPN is up (staging) — 03:42
-
-$ vpn disconnect
-==> Disconnecting from staging
-✓ Disconnected
 ```
 
 ## Requirements
 
 - macOS
 - Python 3 (ships with macOS)
-- [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn-download/) with at least one profile configured
+- [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured
 
 ## Install
 
 ```bash
 brew install jlars22/tools/aws-vpn-cli
-vpn import
+vpn
 ```
 
 <details>
@@ -45,7 +45,7 @@ Requires [Go](https://go.dev/dl/) 1.21+.
 git clone https://github.com/jlars22/aws-vpn-cli.git
 cd aws-vpn-cli
 make install   # sudo for symlinking vpn to /usr/local/bin
-vpn import
+vpn
 ```
 
 </details>
@@ -54,14 +54,14 @@ vpn import
 
 | Command | |
 |---|---|
-| `vpn import` | Import profiles from AWS VPN Client |
-| `vpn list` | List available profiles |
-| `vpn <profile>` | Connect (runs in background) |
+| `vpn` | Interactive profile picker (connect, switch, or disconnect) |
+| `vpn <profile>` | Connect directly to a profile |
 | `vpn status` | Show connection status |
-| `vpn switch <profile>` | Disconnect and reconnect to a different profile |
 | `vpn disconnect` | Disconnect |
+| `vpn list` | List available profiles |
+| `vpn import` | Re-import profiles from AWS VPN Client |
 | `vpn logs` | Tail the connection log |
-| `vpn setup-sudo` | Allow vpn to run without password prompts |
+| `vpn setup-sudo` | Skip password prompts (configures sudoers) |
 
 Tab completion is available for zsh — restart your shell after installing.
 
