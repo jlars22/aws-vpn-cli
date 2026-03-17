@@ -24,7 +24,6 @@ install: build
 	sudo mkdir -p $(ZSH_COMPLETIONS)
 	sudo ln -sf $(PREFIX)/vpn $(BIN_DIR)/vpn
 	sudo cp _vpn $(ZSH_COMPLETIONS)/_vpn
-	@$(PREFIX)/vpn import 2>/dev/null || true
 	@echo ""
 	@echo "✓ Installed! Run: vpn"
 	@echo ""
