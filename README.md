@@ -26,13 +26,13 @@ $ vpn disconnect
 ## Requirements
 
 - macOS
+- Python 3 (ships with macOS)
 - [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn-download/) with at least one profile configured
 
 ## Install
 
 ```bash
-brew tap jlars22/tools
-brew install aws-vpn-cli
+brew install jlars22/tools/aws-vpn-cli
 vpn import
 ```
 
@@ -61,6 +61,7 @@ vpn import
 | `vpn switch <profile>` | Disconnect and reconnect to a different profile |
 | `vpn disconnect` | Disconnect |
 | `vpn logs` | Tail the connection log |
+| `vpn setup-sudo` | Allow vpn to run without password prompts |
 
 Tab completion is available for zsh — restart your shell after installing.
 

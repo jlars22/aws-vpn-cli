@@ -16,7 +16,7 @@ INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
 OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
-VERSION="0.1.2"
+VERSION="0.2.0"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
@@ -50,6 +50,7 @@ usage() {
   echo -e "  ${CYAN}switch${RESET} ${DIM}<profile>${RESET}    Switch to a different profile"
   echo -e "  ${CYAN}disconnect${RESET}          Disconnect from VPN"
   echo -e "  ${CYAN}logs${RESET}                Show VPN connection logs"
+  echo -e "  ${CYAN}setup-sudo${RESET}          Allow vpn to run without password prompts"
   echo ""
   echo -e "Run ${CYAN}vpn import${RESET} after installing to pull profiles from the AWS VPN Client app."
   exit "${1:-0}"
@@ -287,7 +288,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   # Resolve hostname to IP (need persistent IP for both connection phases)
   local SRV
-  SRV=$(dig a +short "${RAND}.${VPN_HOST}" | head -n1)
+  SRV=$(python3 -c "import socket; print(socket.getaddrinfo('${RAND}.${VPN_HOST}', None, socket.AF_INET)[0][4][0])" 2>/dev/null)
   if [[ -z "$SRV" ]]; then
     err "Could not resolve VPN host: ${VPN_HOST}"
     exit 1
@@ -340,7 +341,10 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   success "SAML authentication successful!"
   step "Establishing VPN tunnel"
-  info "sudo is required to create the tunnel interface"
+  if [[ ! -f /etc/sudoers.d/aws-vpn-cli ]]; then
+    info "sudo is required to create the tunnel interface"
+    info "Run ${CYAN}vpn setup-sudo${RESET} to skip this in the future"
+  fi
 
   # Write credentials to a temp file
   local AUTH_FILE
@@ -393,6 +397,51 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   info "Run ${CYAN}vpn status${RESET} to check, ${CYAN}vpn logs${RESET} to debug"
 }
 
+cmd_setup_sudo() {
+  local sudoers_file="/etc/sudoers.d/aws-vpn-cli"
+
+  if [[ -f "$sudoers_file" ]]; then
+    success "Passwordless sudo is already configured"
+    info "To remove: sudo rm $sudoers_file"
+    return
+  fi
+
+  step "Setting up passwordless sudo for vpn"
+  info "This creates ${BOLD}${sudoers_file}${RESET} allowing:"
+  echo -e "  - OpenVPN (to create the tunnel interface)"
+  echo -e "  - pkill (to stop the tunnel on disconnect)"
+  echo -e "  - scutil (to manage DNS)"
+  echo ""
+
+  read -rp "Proceed? [y/N] " confirm
+  if [[ "$confirm" != [yY] ]]; then
+    info "Cancelled"
+    return
+  fi
+
+  local rule
+  rule=$(cat <<SUDOERS
+# Allow aws-vpn-cli to manage VPN connections without a password
+%staff ALL=(root) NOPASSWD: $OVPN_BIN *
+%staff ALL=(root) NOPASSWD: /usr/bin/pkill -f acvc-openvpn*
+%staff ALL=(root) NOPASSWD: /usr/sbin/scutil
+SUDOERS
+)
+
+  echo "$rule" | sudo tee "$sudoers_file" > /dev/null
+  sudo chmod 0440 "$sudoers_file"
+
+  # Validate the file — remove it if broken
+  if ! sudo visudo -cf "$sudoers_file" > /dev/null 2>&1; then
+    sudo rm -f "$sudoers_file"
+    err "Generated sudoers file was invalid — removed it"
+    err "Please report this issue"
+    exit 1
+  fi
+
+  success "Done! vpn connect/disconnect will no longer ask for your password"
+}
+
 cmd_switch() {
   local profile="${1:-}"
   if [[ -z "$profile" ]]; then
@@ -409,6 +458,7 @@ case "${1:-}" in
   status)            cmd_status ;;
   switch)            cmd_switch "$2" ;;
   disconnect|down)   cmd_disconnect ;;
+  setup-sudo)        cmd_setup_sudo ;;
   logs)              cmd_logs ;;
   -v|--version)      echo "aws-vpn-cli $VERSION" ;;
   -h|--help)         usage 0 ;;
