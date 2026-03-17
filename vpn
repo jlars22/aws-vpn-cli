@@ -180,17 +180,22 @@ cmd_disconnect() {
   local profile
   profile=$(ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | head -1 | sed 's|.*/||;s|\.conf||')
   step "Disconnecting${profile:+ from ${profile}}"
+
+  # Kill the openvpn process
   sudo pkill -f "acvc-openvpn.*aws-vpn-cli" 2>/dev/null || true
   rm -f "$PID_FILE"
 
-  # Wait briefly for DNS to be restored by the down script
+  # Wait briefly for the down script to restore DNS
   sleep 1
 
+  # Clean up DNS if the down script didn't run
   if is_connected; then
-    warn "VPN may still be connected — try ${CYAN}sudo killall acvc-openvpn${RESET}"
-  else
-    success "Disconnected"
+    sudo scutil <<-EOF
+	remove State:/Network/Service/openvpn/DNS
+	EOF
   fi
+
+  success "Disconnected"
 }
 
 cmd_logs() {

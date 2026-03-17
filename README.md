@@ -42,8 +42,10 @@ vpn import
 |---|---|
 | `vpn import` | Import profiles from AWS VPN Client |
 | `vpn list` | List available profiles |
-| `vpn <profile>` | Connect |
+| `vpn <profile>` | Connect (runs in background) |
 | `vpn status` | Show connection status |
+| `vpn disconnect` | Disconnect |
+| `vpn logs` | Tail the connection log |
 
 ## How does it work?
 

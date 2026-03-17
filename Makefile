@@ -29,6 +29,7 @@ install: build
 	@echo ""
 
 uninstall:
+	@$(BIN_DIR)/vpn disconnect 2>/dev/null || true
 	rm -rf $(PREFIX)
 	sudo rm -f $(BIN_DIR)/vpn
 	sudo rm -f $(ZSH_COMPLETIONS)/_vpn
