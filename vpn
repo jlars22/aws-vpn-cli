@@ -2,7 +2,7 @@
 set -e
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0")")" && pwd)"
 OVPN_BIN="${OVPN_BIN:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn}"
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
