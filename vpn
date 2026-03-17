@@ -324,7 +324,7 @@ cmd_connect() {
   local profiles_file="$CONFIG_DIR/profiles.json"
 
   if [[ ! -f "$profiles_file" ]]; then
-    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    warn "No profiles yet — run ${CYAN}vpn${RESET} to get started"
     exit 1
   fi
 
