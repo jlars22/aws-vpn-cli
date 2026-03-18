@@ -17,11 +17,11 @@ if [[ -n "$DNS_SERVERS" ]]; then
 	d.init
 	d.add ServerAddresses *${DNS_SERVERS}
 	d.add SupplementalMatchDomains * ""
-	set State:/Network/Service/openvpn/DNS
+	set State:/Network/Service/aws-vpn-${dev}/DNS
 	EOF
   else
     resolvectl dns "${dev:-tun0}" $DNS_SERVERS
     resolvectl domain "${dev:-tun0}" "~."
   fi
-  echo "VPN DNS configured:${DNS_SERVERS}"
+  echo "VPN DNS configured (${dev}):${DNS_SERVERS}"
 fi
