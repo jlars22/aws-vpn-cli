@@ -171,8 +171,13 @@ cmd_list() {
     return
   fi
 
+  local max_w=0
+  while IFS='|' read -r slug _ _; do
+    (( ${#slug} > max_w )) && max_w=${#slug}
+  done <<< "$lines"
+
   while IFS='|' read -r slug name region; do
-    printf "  ${CYAN}%-25s${RESET} %s ${DIM}(%s)${RESET}\n" "$slug" "$name" "$region"
+    printf "  ${CYAN}%-${max_w}s${RESET}  %s ${DIM}(%s)${RESET}\n" "$slug" "$name" "$region"
   done <<< "$lines"
 }
 
@@ -198,13 +203,18 @@ cmd_select() {
   active=$(_active_profile)
   if command -v fzf > /dev/null 2>&1; then
     # Put active profile first so fzf cursor starts on it
+    local max_w=0
+    while IFS='|' read -r s _ _; do
+      (( ${#s} > max_w )) && max_w=${#s}
+    done <<< "$lines"
+
     slug=$(echo "$lines" | while IFS='|' read -r s name region; do
       if [[ "$s" == "$active" ]]; then
-        printf "%s\t%s (%s) ${GREEN}● connected${RESET}\n" "$s" "$name" "$region"
+        printf "%-${max_w}s  %s (%s) ${GREEN}● connected${RESET}\n" "$s" "$name" "$region"
       else
-        printf "%s\t%s (%s)\n" "$s" "$name" "$region"
+        printf "%-${max_w}s  %s (%s)\n" "$s" "$name" "$region"
       fi
-    done | awk -v active="$active" 'index($0, active"\t") == 1 {first=$0; next} {rest[++n]=$0} END {if(first) print first; for(i=1;i<=n;i++) print rest[i]}' \
+    done | awk -v active="$active" 'index($0, active" ") == 1 {first=$0; next} {rest[++n]=$0} END {if(first) print first; for(i=1;i<=n;i++) print rest[i]}' \
     | fzf --ansi --height=~10 --layout=reverse --prompt="VPN > " --no-info \
       --color="pointer:cyan,prompt:blue,hl:cyan,hl+:cyan,fg+:white:bold,pointer:cyan" | awk '{print $1}')
   else

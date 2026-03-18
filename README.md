@@ -2,13 +2,7 @@
 
 Connect to AWS Client VPN entirely from the terminal. No separate OpenVPN install, no manual config — just `vpn`.
 
-```console
-$ vpn
-VPN >
-  dev          Development (eu-central-1)
-> production   Production (eu-central-1) ● connected
-  staging      Staging (eu-central-1)
-```
+<img src=".github/demo.png" alt="vpn interactive picker" width="420">
 
 ## Highlights
 
