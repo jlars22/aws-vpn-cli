@@ -4,7 +4,7 @@ A CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/)
 
 <img src=".github/demo.png" alt="vpn interactive picker" width="420">
 
-The AWS VPN Client works fine, but it's a GUI — which means leaving your terminal, clicking around, and switching back. This lets you stay in your terminal and script it. Combine it with `assume` or alias it into your workflow:
+Stay in your terminal instead of clicking through the GUI. Scripts nicely too:
 
 ```bash
 assume staging && vpn staging   # credentials + vpn in one go
@@ -18,7 +18,7 @@ Requires macOS and [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with
 brew install jlars22/tools/aws-vpn-cli
 ```
 
-Then just run `vpn` — it will import your profiles on first launch.
+Run `vpn` — profiles are imported on first launch. Tab completion is available for zsh (restart your shell after installing).
 
 ## Usage
 
@@ -33,14 +33,12 @@ $ vpn logs              # tail the connection log
 $ vpn setup-sudo        # skip password prompts (configures sudoers)
 ```
 
-Tab completion is available for zsh — restart your shell after installing.
-
 ## How it works
 
-SAML authentication is handled by a small Go server that captures the SSO callback from your browser. The tunnel runs on the OpenVPN binary bundled with the AWS VPN Client.
+SAML auth is handled by a local server that captures the SSO callback. The tunnel runs on the OpenVPN binary bundled with the AWS VPN Client.
 
 > [!NOTE]
-> Homebrew's OpenVPN doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.
+> Homebrew's OpenVPN doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities.
 
 ## Credits
 
