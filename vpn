@@ -13,8 +13,37 @@ _resolve_symlink() {
   echo "$(cd "$(dirname "$target")" && pwd)"
 }
 INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
-OVPN_BIN_DEFAULT="/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn"
-OVPN_BIN_SYMLINK="/usr/local/lib/aws-vpn-cli/acvc-openvpn"
+
+# Platform detection
+OS="$(uname -s)"
+
+if [[ "$OS" == "Darwin" ]]; then
+  OVPN_BIN_DEFAULT="/Applications/AWS VPN Client/AWS VPN Client.app/Contents/Resources/openvpn/acvc-openvpn"
+  OVPN_BIN_SYMLINK="/usr/local/lib/aws-vpn-cli/acvc-openvpn"
+else
+  ACVC_OPENVPN="/opt/awsvpnclient/Service/Resources/openvpn/acvc-openvpn"
+  OVPN_BIN_WRAPPER="$CONFIG_DIR/acvc-openvpn"
+  if [[ -f "$ACVC_OPENVPN" ]]; then
+    # acvc-openvpn is a musl-linked binary; if the dynamic loader can't run it
+    # directly, create a wrapper that invokes it via the musl interpreter.
+    if "$ACVC_OPENVPN" --version > /dev/null 2>&1; then
+      OVPN_BIN_DEFAULT="$ACVC_OPENVPN"
+    elif [[ -x "/lib/ld-musl-x86_64.so.1" ]]; then
+      mkdir -p "$CONFIG_DIR"
+      cat > "$OVPN_BIN_WRAPPER" <<'WRAPPER'
+#!/bin/sh
+exec /lib/ld-musl-x86_64.so.1 /opt/awsvpnclient/Service/Resources/openvpn/acvc-openvpn "$@"
+WRAPPER
+      chmod +x "$OVPN_BIN_WRAPPER"
+      OVPN_BIN_DEFAULT="$OVPN_BIN_WRAPPER"
+    else
+      OVPN_BIN_DEFAULT="$ACVC_OPENVPN"
+    fi
+  else
+    OVPN_BIN_DEFAULT="/usr/sbin/openvpn"
+  fi
+  OVPN_BIN_SYMLINK="/usr/local/lib/aws-vpn-cli/acvc-openvpn"
+fi
 # Prefer the symlink (space-free path works with sudoers NOPASSWD rules)
 if [[ -z "${OVPN_BIN:-}" ]]; then
   if [[ -x "$OVPN_BIN_SYMLINK" ]]; then
@@ -23,7 +52,11 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
     OVPN_BIN="$OVPN_BIN_DEFAULT"
   fi
 fi
-SAML_SERVER="$INSTALL_DIR/saml-server"
+if [[ -x "$INSTALL_DIR/saml-server" ]]; then
+  SAML_SERVER="$INSTALL_DIR/saml-server"
+else
+  SAML_SERVER="python3 $INSTALL_DIR/saml-server.py"
+fi
 PROTO=udp
 VERSION="0.3.2"
 PID_FILE="$CONFIG_DIR/vpn.pid"
@@ -260,17 +293,21 @@ cmd_status() {
 
   local profile uptime
   profile=$(_active_profile)
-  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "acvc-openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
+  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
 
   success "Connected to ${BOLD}${profile}${RESET}${uptime:+ ${DIM}(${uptime})${RESET}}"
 }
 
 _has_vpn_dns() {
-  echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"
+  if [[ "$OS" == "Darwin" ]]; then
+    echo "show State:/Network/Service/openvpn/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"
+  else
+    resolvectl status tun0 > /dev/null 2>&1
+  fi
 }
 
 _has_vpn_process() {
-  pgrep -f "acvc-openvpn.*aws-vpn-cli" > /dev/null 2>&1
+  pgrep -f "openvpn.*aws-vpn-cli" > /dev/null 2>&1
 }
 
 is_connected() {
@@ -280,9 +317,13 @@ is_connected() {
     fi
     # Stale DNS entry — process died but DNS wasn't cleaned up
     warn "Cleaning up stale connection"
-    env -u TERMINFO sudo scutil <<-EOF
+    if [[ "$OS" == "Darwin" ]]; then
+      env -u TERMINFO sudo scutil <<-EOF
 	remove State:/Network/Service/openvpn/DNS
 	EOF
+    else
+      env -u TERMINFO sudo resolvectl revert tun0 2>/dev/null || true
+    fi
     rm -f "$PID_FILE"
     return 1
   fi
@@ -301,11 +342,11 @@ cmd_disconnect() {
 
   local profile uptime
   profile=$(_active_profile)
-  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "acvc-openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
+  uptime=$(ps -eo etime=,args= 2>/dev/null | grep "openvpn.*aws-vpn-cli" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//')
   step "Disconnecting${profile:+ from ${profile}}"
 
   # Kill the openvpn process
-  env -u TERMINFO sudo pkill -f "acvc-openvpn.*aws-vpn-cli" 2>/dev/null || true
+  env -u TERMINFO sudo pkill -f "openvpn.*aws-vpn-cli" 2>/dev/null || true
   rm -f "$PID_FILE"
 
   # Wait briefly for the down script to restore DNS
@@ -313,9 +354,13 @@ cmd_disconnect() {
 
   # Clean up DNS if the down script didn't run
   if is_connected; then
-    env -u TERMINFO sudo scutil <<-EOF
+    if [[ "$OS" == "Darwin" ]]; then
+      env -u TERMINFO sudo scutil <<-EOF
 	remove State:/Network/Service/openvpn/DNS
 	EOF
+    else
+      env -u TERMINFO sudo resolvectl revert tun0 2>/dev/null || true
+    fi
   fi
 
   success "Disconnected${uptime:+ ${DIM}(was connected ${uptime})${RESET}}"
@@ -382,17 +427,21 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   fi
 
   local RUNTIME_DIR
-  RUNTIME_DIR=$(mktemp -d -t aws-vpn)
+  RUNTIME_DIR=$(mktemp -d -t aws-vpn.XXXXXX)
 
   # Kill any stale SAML server from a previous run
-  for pid in $(lsof -ti :35001 2>/dev/null); do
-    kill "$pid" 2>/dev/null || true
-  done
+  if command -v lsof > /dev/null 2>&1; then
+    for pid in $(lsof -ti :35001 2>/dev/null); do
+      kill "$pid" 2>/dev/null || true
+    done
+  else
+    fuser -k 35001/tcp 2>/dev/null || true
+  fi
 
   step "Authenticating"
   local SAML_PID=""
   cd "$RUNTIME_DIR"
-  "$SAML_SERVER" &
+  $SAML_SERVER &
   SAML_PID=$!
   sleep 0.5
 
@@ -443,7 +492,14 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   step "Opening browser for SSO"
   local URL
   URL=$(echo "$OVPN_OUT" | grep -Eo 'https://.+')
-  open "$URL"
+  if [[ "$OS" == "Darwin" ]]; then
+    open "$URL"
+  else
+    xdg-open "$URL" 2>/dev/null || {
+      warn "Could not open browser automatically"
+      info "Open this URL manually: ${CYAN}${URL}${RESET}"
+    }
+  fi
 
   info "Waiting for authentication..."
   local wait_seconds=30
@@ -526,7 +582,11 @@ cmd_setup_sudo() {
   step "Setting up passwordless sudo for vpn"
   info "This will:"
   echo -e "  - Symlink the OpenVPN binary to ${BOLD}${symlink_path}${RESET}"
-  echo -e "  - Create ${BOLD}${sudoers_file}${RESET} allowing openvpn, pkill, and scutil without a password"
+  if [[ "$OS" == "Darwin" ]]; then
+    echo -e "  - Create ${BOLD}${sudoers_file}${RESET} allowing openvpn, pkill, and scutil without a password"
+  else
+    echo -e "  - Create ${BOLD}${sudoers_file}${RESET} allowing openvpn, pkill, and resolvectl without a password"
+  fi
   echo ""
 
   read -rp "Proceed? [y/N] " confirm
@@ -539,14 +599,29 @@ cmd_setup_sudo() {
   sudo mkdir -p "$symlink_dir"
   sudo ln -sf "$OVPN_BIN" "$symlink_path"
 
-  local rule
-  rule=$(cat <<SUDOERS
+  local rule group
+  if [[ "$OS" == "Darwin" ]]; then
+    group="%staff"
+  else
+    group="%sudo"
+  fi
+  if [[ "$OS" == "Darwin" ]]; then
+    rule=$(cat <<SUDOERS
 # Allow aws-vpn-cli to manage VPN connections without a password
-%staff ALL=(root) NOPASSWD: $symlink_path *
-%staff ALL=(root) NOPASSWD: /usr/bin/pkill -f acvc-openvpn*
-%staff ALL=(root) NOPASSWD: /usr/sbin/scutil
+$group ALL=(root) NOPASSWD: $symlink_path *
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -f acvc-openvpn*
+$group ALL=(root) NOPASSWD: /usr/sbin/scutil
 SUDOERS
 )
+  else
+    rule=$(cat <<SUDOERS
+# Allow aws-vpn-cli to manage VPN connections without a password
+$group ALL=(root) NOPASSWD: $symlink_path *
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -f openvpn*
+$group ALL=(root) NOPASSWD: /usr/bin/resolvectl
+SUDOERS
+)
+  fi
 
   echo "$rule" | sudo tee "$sudoers_file" > /dev/null
   sudo chmod 0440 "$sudoers_file"

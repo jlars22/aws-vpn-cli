@@ -12,11 +12,16 @@ for opt in ${!foreign_option_*}; do
 done
 
 if [[ -n "$DNS_SERVERS" ]]; then
-  /usr/sbin/scutil <<-EOF
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    /usr/sbin/scutil <<-EOF
 	d.init
 	d.add ServerAddresses *${DNS_SERVERS}
 	d.add SupplementalMatchDomains * ""
 	set State:/Network/Service/openvpn/DNS
 	EOF
+  else
+    resolvectl dns "${dev:-tun0}" $DNS_SERVERS
+    resolvectl domain "${dev:-tun0}" "~."
+  fi
   echo "VPN DNS configured:${DNS_SERVERS}"
 fi
