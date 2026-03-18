@@ -52,11 +52,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
     OVPN_BIN="$OVPN_BIN_DEFAULT"
   fi
 fi
-if [[ -x "$INSTALL_DIR/saml-server" ]]; then
-  SAML_SERVER="$INSTALL_DIR/saml-server"
-else
-  SAML_SERVER="python3 $INSTALL_DIR/saml-server.py"
-fi
+SAML_SERVER="python3 $INSTALL_DIR/saml-server.py"
 PROTO=udp
 VERSION="0.3.2"
 
