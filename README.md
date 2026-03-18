@@ -2,9 +2,7 @@
 
 A CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/). Uses your existing profiles and the OpenVPN binary bundled with the app.
 
-<p align="center">
-  <img src=".github/demo.png" alt="vpn interactive picker" width="420">
-</p>
+<img src=".github/demo.png" alt="vpn interactive picker" width="420">
 
 The AWS VPN Client works fine, but it's a GUI — which means leaving your terminal, clicking around, and switching back. This lets you stay in your terminal and script it. Combine it with `assume` or alias it into your workflow:
 
