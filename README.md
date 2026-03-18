@@ -1,15 +1,22 @@
 # aws-vpn-cli
 
-Connect to AWS Client VPN entirely from the terminal. No separate OpenVPN install, no manual config — just `vpn`.
+A CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/). Uses your existing profiles and the OpenVPN binary bundled with the app.
 
-<img src=".github/demo.png" alt="vpn interactive picker" width="420">
+<p align="center">
+  <img src=".github/demo.png" alt="vpn interactive picker" width="420">
+</p>
+
+The AWS VPN Client works fine, but it's a GUI — which means leaving your terminal, clicking around, and switching back. This lets you stay in your terminal and script it. Combine it with `assume` or alias it into your workflow:
+
+```bash
+assume staging && vpn staging   # credentials + vpn in one go
+```
 
 ## Highlights
 
-- **Zero config** — imports profiles directly from the AWS VPN Client app
+- **Extends the AWS VPN Client** — reuses its profiles and bundled OpenVPN binary, nothing extra to install
 - **Interactive picker** — fuzzy-search your profiles with fzf
 - **One command** — `vpn` to connect, switch, or disconnect
-- **No extra OpenVPN** — reuses the binary bundled with AWS VPN Client (avoids OpenSSL 3.6 TLS incompatibilities with Homebrew's OpenVPN)
 - **SAML/SSO** — opens your browser, captures the callback, done
 
 ## Install
@@ -39,7 +46,7 @@ Tab completion is available for zsh — restart your shell after installing.
 
 ## How it works
 
-The SAML authentication flow is handled by a small Go server that captures the SSO callback from your browser. The connection itself uses the OpenVPN binary that ships inside the AWS VPN Client app, so there's nothing extra to install or configure.
+SAML authentication is handled by a small Go server that captures the SSO callback from your browser. The tunnel runs on the OpenVPN binary bundled with the AWS VPN Client.
 
 > [!NOTE]
 > Homebrew's OpenVPN doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.
