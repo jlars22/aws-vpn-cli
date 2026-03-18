@@ -36,20 +36,6 @@ brew install jlars22/tools/aws-vpn-cli
 vpn
 ```
 
-<details>
-<summary>Alternative: install from source</summary>
-
-Requires [Go](https://go.dev/dl/) 1.21+.
-
-```bash
-git clone https://github.com/jlars22/aws-vpn-cli.git
-cd aws-vpn-cli
-make install   # sudo for symlinking vpn to /usr/local/bin
-vpn
-```
-
-</details>
-
 ## Commands
 
 | Command | |
