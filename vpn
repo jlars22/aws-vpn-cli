@@ -25,7 +25,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
 fi
 SAML_SERVER="$INSTALL_DIR/saml-server"
 PROTO=udp
-VERSION="0.3.0"
+VERSION="0.3.2"
 PID_FILE="$CONFIG_DIR/vpn.pid"
 LOG_FILE="$CONFIG_DIR/vpn.log"
 
