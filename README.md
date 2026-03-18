@@ -4,11 +4,7 @@ A CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/)
 
 <img src=".github/demo.png" alt="vpn interactive picker" width="420">
 
-Stay in your terminal instead of clicking through the GUI. Scripts nicely too:
-
-```bash
-assume staging && vpn staging   # credentials + vpn in one go
-```
+Stay in your terminal instead of clicking through the GUI.
 
 ## Install
 
