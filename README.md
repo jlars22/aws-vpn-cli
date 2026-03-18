@@ -1,6 +1,6 @@
 # aws-vpn-cli
 
-A simple CLI alternative to the AWS VPN Client UI. Import your existing profiles and connect entirely from the terminal.
+Connect to AWS Client VPN entirely from the terminal. No separate OpenVPN install, no manual config — just `vpn`.
 
 ```console
 $ vpn
@@ -10,50 +10,50 @@ VPN >
   staging      Staging (eu-central-1)
 ```
 
-Run `vpn` to open an interactive profile picker. Select a profile to connect, select the active one to disconnect. That's it.
+## Highlights
 
-You can also connect directly:
-
-```console
-$ vpn staging
-==> Authenticating
-==> Opening browser for SSO
-✓ Authenticated
-==> Establishing tunnel
-✓ Connected to Staging
-```
-
-## Requirements
-
-- macOS
-- Python 3 (ships with macOS)
-- [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured
+- **Zero config** — imports profiles directly from the AWS VPN Client app
+- **Interactive picker** — fuzzy-search your profiles with fzf
+- **One command** — `vpn` to connect, switch, or disconnect
+- **No extra OpenVPN** — reuses the binary bundled with AWS VPN Client (avoids OpenSSL 3.6 TLS incompatibilities with Homebrew's OpenVPN)
+- **SAML/SSO** — opens your browser, captures the callback, done
 
 ## Install
 
+Requires macOS and [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured.
+
 ```bash
 brew install jlars22/tools/aws-vpn-cli
-vpn
 ```
 
-## Commands
+Then just run `vpn` — it will import your profiles on first launch.
 
-| Command | |
-|---|---|
-| `vpn` | Interactive profile picker (connect, switch, or disconnect) |
-| `vpn <profile>` | Connect directly to a profile |
-| `vpn status` | Show connection status |
-| `vpn disconnect` | Disconnect |
-| `vpn list` | List available profiles |
-| `vpn import` | Re-import profiles from AWS VPN Client |
-| `vpn logs` | Tail the connection log |
-| `vpn setup-sudo` | Skip password prompts (configures sudoers) |
+## Usage
+
+```console
+$ vpn                   # interactive profile picker
+$ vpn staging           # connect directly
+$ vpn status            # show connection status
+$ vpn disconnect        # disconnect
+$ vpn list              # list available profiles
+$ vpn import            # re-import profiles from AWS VPN Client
+$ vpn logs              # tail the connection log
+$ vpn setup-sudo        # skip password prompts (configures sudoers)
+```
 
 Tab completion is available for zsh — restart your shell after installing.
 
-## How does it work?
+## How it works
 
-It reuses the OpenVPN binary that ships inside the AWS VPN Client app and your existing connection profiles — no separate OpenVPN install, no manual config. The SAML authentication flow is handled by a small Go server that captures the SSO callback from your browser.
+The SAML authentication flow is handled by a small Go server that captures the SSO callback from your browser. The connection itself uses the OpenVPN binary that ships inside the AWS VPN Client app, so there's nothing extra to install or configure.
 
 > [!NOTE]
 > Homebrew's OpenVPN doesn't work with AWS Client VPN due to OpenSSL 3.6 TLS incompatibilities. That's why this uses the binary bundled with the AWS VPN Client, which is built against OpenSSL 3.0.
+
+## Credits
+
+Built on ideas from [aws-vpn-client](https://github.com/aws-vpn-client/aws-vpn-client).
+
+## License
+
+[MIT](LICENSE)
