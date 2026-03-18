@@ -10,13 +10,6 @@ The AWS VPN Client works fine, but it's a GUI — which means leaving your termi
 assume staging && vpn staging   # credentials + vpn in one go
 ```
 
-## Highlights
-
-- **Extends the AWS VPN Client** — reuses its profiles and bundled OpenVPN binary, nothing extra to install
-- **Interactive picker** — fuzzy-search your profiles with fzf
-- **One command** — `vpn` to connect, switch, or disconnect
-- **SAML/SSO** — opens your browser, captures the callback, done
-
 ## Install
 
 Requires macOS and [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured.
