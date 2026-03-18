@@ -32,7 +32,7 @@ Then just run `vpn` — it will import your profiles on first launch.
 
 ```console
 $ vpn                   # interactive profile picker
-$ vpn staging           # connect directly
+$ vpn <profile>         # connect directly
 $ vpn status            # show connection status
 $ vpn disconnect        # disconnect
 $ vpn list              # list available profiles
@@ -53,7 +53,3 @@ The SAML authentication flow is handled by a small Go server that captures the S
 ## Credits
 
 Built on ideas from [aws-vpn-client](https://github.com/aws-vpn-client/aws-vpn-client).
-
-## License
-
-[MIT](LICENSE)
