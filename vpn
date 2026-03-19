@@ -6,11 +6,12 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aws-vpn-cli"
 _resolve_symlink() {
   local target="$1"
   while [[ -L "$target" ]]; do
-    local dir="$(cd "$(dirname "$target")" && pwd)"
+    local dir
+    dir="$(cd "$(dirname "$target")" && pwd)"
     target="$(readlink "$target")"
     [[ "$target" != /* ]] && target="$dir/$target"
   done
-  echo "$(cd "$(dirname "$target")" && pwd)"
+  cd "$(dirname "$target")" && pwd
 }
 INSTALL_DIR="$(_resolve_symlink "${BASH_SOURCE[0]}")"
 
@@ -57,7 +58,6 @@ PROTO=udp
 VERSION="0.4.0"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
-AWS_VPN_CLIENT_CONFIGS="$HOME/.config/AWSVPNClient/OpenVpnConfigs"
 
 # Colors
 BOLD='\033[1m'
@@ -97,11 +97,13 @@ _is_profile_connected() {
 
 _active_profiles() {
   # Return all connected profile slugs, one per line
+  # shellcheck disable=SC2009  # need ps output format that pgrep can't provide
   ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | sed 's|.*/||;s|\.conf||' | sort -u
 }
 
 _profile_uptime() {
   local slug="$1"
+  # shellcheck disable=SC2009  # need etime from ps which pgrep can't provide
   ps -eo etime=,args= 2>/dev/null | grep "aws-vpn-cli/configs/${slug}\.conf" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//'
 }
 
@@ -145,6 +147,14 @@ profiles = {}
 for p in data.get("ConnectionProfiles", []):
     name = p["ProfileName"]
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    # Avoid slug collisions by appending a numeric suffix
+    base_slug = slug
+    counter = 2
+    while slug in profiles:
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
     config_path = p["OvpnConfigFilePath"]
 
     if not os.path.exists(config_path):
@@ -324,10 +334,27 @@ cmd_status() {
     return
   fi
 
+  # Load profile metadata for richer output
+  local profiles_file="$CONFIG_DIR/profiles.json"
+  local profile_meta=""
+  if [[ -f "$profiles_file" ]]; then
+    profile_meta=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    profiles = json.load(f)
+for slug, p in profiles.items():
+    print(f\"{slug}|{p.get('region', '')}|{p.get('name', slug)}\")
+" "$profiles_file" 2>/dev/null) || true
+  fi
+
   while read -r slug; do
-    local uptime
+    local uptime region name
     uptime=$(_profile_uptime "$slug")
-    success "Connected to ${BOLD}${slug}${RESET}${uptime:+ ${DIM}(${uptime})${RESET}}"
+    region=$(echo "$profile_meta" | grep "^${slug}|" | head -1 | cut -d'|' -f2)
+    name=$(echo "$profile_meta" | grep "^${slug}|" | head -1 | cut -d'|' -f3)
+    local detail="${name:-$slug}"
+    [[ -n "$region" ]] && detail="${detail} ${DIM}(${region})"
+    success "Connected to ${BOLD}${detail}${RESET}${uptime:+ ${DIM}  ${uptime}${RESET}}"
   done <<< "$active_profiles"
 }
 
@@ -506,6 +533,12 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
     for pid in $(lsof -ti :35001 2>/dev/null); do
       kill "$pid" 2>/dev/null || true
     done
+    sleep 0.2
+    if lsof -ti :35001 > /dev/null 2>&1; then
+      err "Port 35001 is already in use by another process"
+      info "Kill the process using the port and try again: ${CYAN}lsof -ti :35001 | xargs kill${RESET}"
+      exit 1
+    fi
   else
     fuser -k 35001/tcp 2>/dev/null || true
   fi
