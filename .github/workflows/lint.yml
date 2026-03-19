@@ -16,6 +16,7 @@ jobs:
         with:
           scandir: .
           additional_files: vpn
+          ignore_names: _vpn
 
   python:
     runs-on: ubuntu-latest
