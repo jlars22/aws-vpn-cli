@@ -52,6 +52,8 @@ $ vpn logs [profile]        # tail the connection log
 $ vpn setup-sudo            # skip password prompts (configures sudoers)
 ```
 
+Multiple VPN connections are supported simultaneously — just run `vpn` again and pick another profile.
+
 Tab completion is available for zsh (restart your shell after installing).
 
 ## How it works
