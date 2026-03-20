@@ -32,8 +32,10 @@ brew install jlars22/tools/aws-vpn-cli
 
 ```bash
 git clone https://github.com/jlars22/aws-vpn-cli.git
-ln -s "$(pwd)/aws-vpn-cli/vpn" /usr/local/bin/vpn
+ln -s "$(pwd)/aws-vpn-cli/vpn" ~/.local/bin/vpn
 ```
+
+Make sure `~/.local/bin` is on your `PATH`.
 
 ## Usage
 
