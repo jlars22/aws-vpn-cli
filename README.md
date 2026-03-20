@@ -4,6 +4,8 @@
 
 A CLI wrapper for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/). Connect to your VPN without leaving the terminal.
 
+Supports macOS and Linux.
+
 <br>
 
 <img src=".github/demo.gif" alt="aws-vpn-cli demo" width="600">
@@ -14,17 +16,28 @@ A CLI wrapper for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/). 
 
 ## Install
 
-Requires [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured, and Python 3.
+### Prerequisites
+
+- [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured
+- Python 3
+- `sudo` access (for establishing the tunnel)
+
+### Homebrew
 
 ```bash
 brew install jlars22/tools/aws-vpn-cli
 ```
 
-Or clone the repo and symlink `vpn` onto your PATH manually.
+### Manual
 
-Run `vpn` — profiles are imported on first launch. Tab completion is available for zsh (restart your shell after installing).
+```bash
+git clone https://github.com/jlars22/aws-vpn-cli.git
+ln -s "$(pwd)/aws-vpn-cli/vpn" /usr/local/bin/vpn
+```
 
 ## Usage
+
+Most of the time you just run `vpn`. It shows a picker — select a profile to connect, select an active one to disconnect. Profiles are imported on first launch.
 
 ```console
 $ vpn                       # interactive picker (connect or disconnect)
@@ -36,6 +49,8 @@ $ vpn import                # re-import profiles from AWS VPN Client
 $ vpn logs [profile]        # tail the connection log
 $ vpn setup-sudo            # skip password prompts (configures sudoers)
 ```
+
+Tab completion is available for zsh (restart your shell after installing).
 
 ## How it works
 
