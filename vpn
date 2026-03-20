@@ -53,7 +53,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
     OVPN_BIN="$OVPN_BIN_DEFAULT"
   fi
 fi
-SAML_SERVER="python3 $INSTALL_DIR/saml-server.py"
+SAML_SERVER=(python3 "$INSTALL_DIR/saml-server.py")
 PROTO=udp
 VERSION="0.5.1"
 
@@ -446,7 +446,6 @@ cmd_disconnect() {
 
   # Kill this profile's openvpn process (daemon is named aws-vpn-cli-{slug})
   env -u TERMINFO sudo pkill -f "aws-vpn-cli-${slug}" 2>/dev/null || true
-  rm -f "$pf"
 
   # Wait briefly for the down script to restore DNS
   sleep 1
@@ -454,10 +453,16 @@ cmd_disconnect() {
   # Force-kill if still running
   if pgrep -f "aws-vpn-cli-${slug}" > /dev/null 2>&1; then
     env -u TERMINFO sudo pkill -9 -f "aws-vpn-cli-${slug}" 2>/dev/null || true
+    sleep 1
   fi
   _cleanup_stale_dns "$slug"
 
-  success "Disconnected from ${BOLD}${slug}${RESET}${uptime:+ ${DIM}(was connected ${uptime})${RESET}}"
+  if pgrep -f "aws-vpn-cli-${slug}" > /dev/null 2>&1; then
+    warn "Process may still be running for ${BOLD}${slug}${RESET}"
+  else
+    rm -f "$pf"
+    success "Disconnected from ${BOLD}${slug}${RESET}${uptime:+ ${DIM}(was connected ${uptime})${RESET}}"
+  fi
 }
 
 cmd_logs() {
@@ -560,15 +565,17 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   step "Authenticating"
   local SAML_PID=""
   cd "$RUNTIME_DIR"
-  $SAML_SERVER &
+  "${SAML_SERVER[@]}" &
   SAML_PID=$!
   sleep 0.5
 
-  saml_cleanup() {
+  local AUTH_FILE=""
+  cleanup() {
     [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
     rm -rf "$RUNTIME_DIR"
+    [[ -n "$AUTH_FILE" ]] && rm -f "$AUTH_FILE"
   }
-  trap saml_cleanup EXIT
+  trap cleanup EXIT
 
   # Random hostname prefix for the VPN gateway
   local RAND
@@ -631,6 +638,10 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   local VPN_SID
   VPN_SID=$(echo "$OVPN_OUT" | awk -F : '{print $7}')
+  if [[ -z "$VPN_SID" ]]; then
+    err "Could not extract session ID from server response"
+    exit 1
+  fi
 
   success "Authenticated"
   step "Establishing tunnel"
@@ -639,14 +650,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   fi
 
   # Write credentials to a temp file
-  local AUTH_FILE
   AUTH_FILE=$(mktemp)
-  cleanup() {
-    [[ -n "$SAML_PID" ]] && kill "$SAML_PID" 2>/dev/null || true
-    rm -rf "$RUNTIME_DIR"
-    rm -f "$AUTH_FILE"
-  }
-  trap cleanup EXIT
 
   printf "%s\n%s\n" "N/A" "CRV1::${VPN_SID}::$(cat saml-response.txt)" > "$AUTH_FILE"
   chmod 600 "$AUTH_FILE"
@@ -684,7 +688,13 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   rm -f "$AUTH_FILE"
   trap - EXIT
   rm -rf "$RUNTIME_DIR"
-  success "Tunnel started ${DIM}(DNS may take a moment)${RESET}"
+
+  # Check log for errors if process didn't show as connected
+  if grep -qi "error\|failed\|AUTH_FAILED" "$LOG_FILE" 2>/dev/null; then
+    warn "Tunnel may not have started — check ${DIM}vpn logs ${profile}${RESET}"
+  else
+    info "Tunnel started ${DIM}(DNS may take a moment)${RESET}"
+  fi
 }
 
 cmd_setup_sudo() {

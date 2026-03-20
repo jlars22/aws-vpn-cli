@@ -52,12 +52,21 @@ $ vpn disconnect all        # disconnect all active connections
 $ vpn list                  # list available profiles
 $ vpn import                # re-import profiles from AWS VPN Client
 $ vpn logs [profile]        # tail the connection log
-$ vpn setup-sudo            # skip password prompts (configures sudoers)
+$ vpn setup-sudo            # skip password prompts (configures /etc/sudoers.d/aws-vpn-cli)
+$ vpn --version             # print version
 ```
 
 Multiple VPN connections are supported simultaneously — just run `vpn` again and pick another profile.
 
-Tab completion is available for bash and zsh (restart your shell after installing).
+Tab completion is available for bash and zsh. Homebrew sets this up automatically. For manual installs:
+
+```bash
+# bash — add to ~/.bashrc
+source /path/to/aws-vpn-cli/vpn.bash
+
+# zsh — symlink into your fpath
+ln -s /path/to/aws-vpn-cli/_vpn ~/.zsh/completions/_vpn
+```
 
 ## How it works
 
