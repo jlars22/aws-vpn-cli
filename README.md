@@ -45,8 +45,10 @@ Most of the time you just run `vpn`. It shows an [fzf](https://github.com/junegu
 ```console
 $ vpn                       # interactive picker (connect or disconnect)
 $ vpn [profile]             # connect (or disconnect if already connected)
+$ vpn all                   # connect to all profiles sequentially
 $ vpn status                # show active connections
 $ vpn disconnect [profile]  # disconnect (or select if multiple)
+$ vpn disconnect all        # disconnect all active connections
 $ vpn list                  # list available profiles
 $ vpn import                # re-import profiles from AWS VPN Client
 $ vpn logs [profile]        # tail the connection log
@@ -55,7 +57,7 @@ $ vpn setup-sudo            # skip password prompts (configures sudoers)
 
 Multiple VPN connections are supported simultaneously — just run `vpn` again and pick another profile.
 
-Tab completion is available for zsh (restart your shell after installing).
+Tab completion is available for bash and zsh (restart your shell after installing).
 
 ## How it works
 
