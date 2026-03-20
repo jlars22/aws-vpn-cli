@@ -1,10 +1,22 @@
+<div align="center">
+
 # aws-vpn-cli
 
-A CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/). Uses your existing profiles and the OpenVPN binary bundled with the app.
+**Stay in your terminal.** A fast CLI companion for the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/).
 
-<img src=".github/demo.png" alt="vpn interactive picker" width="420">
+Uses your existing profiles and the OpenVPN binary bundled with the app — no extra dependencies.
 
-Stay in your terminal instead of clicking through the GUI.
+<br>
+
+<img src=".github/demo.gif" alt="aws-vpn-cli demo" width="600">
+
+<br>
+
+*Import profiles, connect via SSO, and check status — all without leaving the terminal.*
+
+</div>
+
+<br>
 
 ## Install
 
