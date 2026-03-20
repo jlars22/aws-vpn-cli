@@ -366,10 +366,11 @@ _cleanup_stale_dns() {
     for dev in /var/run/utun* /dev/tun*; do
       local dname
       dname=$(basename "$dev" 2>/dev/null) || continue
-      echo "show State:/Network/Service/aws-vpn-${dname}/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses" && \
+      if echo "show State:/Network/Service/aws-vpn-${dname}/DNS" | scutil 2>/dev/null | grep -q "ServerAddresses"; then
         env -u TERMINFO sudo scutil <<-EOF
 	remove State:/Network/Service/aws-vpn-${dname}/DNS
 	EOF
+      fi
     done
   fi
   # On Linux, DNS is per-device and cleaned up when the tun device disappears
