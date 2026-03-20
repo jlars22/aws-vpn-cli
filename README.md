@@ -21,6 +21,7 @@ Supports macOS and Linux.
 - [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn/) with at least one profile configured
 - Python 3
 - `sudo` access (for establishing the tunnel)
+- [fzf](https://github.com/junegunn/fzf) (optional — enables the interactive picker shown in the demo)
 
 ### Homebrew
 
