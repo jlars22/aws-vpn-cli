@@ -37,7 +37,7 @@ ln -s "$(pwd)/aws-vpn-cli/vpn" /usr/local/bin/vpn
 
 ## Usage
 
-Most of the time you just run `vpn`. It shows a picker — select a profile to connect, select an active one to disconnect. Profiles are imported on first launch.
+Most of the time you just run `vpn`. It shows an [fzf](https://github.com/junegunn/fzf) picker — select a profile to connect, select an active one to disconnect. Profiles are imported on first launch.
 
 ```console
 $ vpn                       # interactive picker (connect or disconnect)
