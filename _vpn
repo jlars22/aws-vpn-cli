@@ -4,10 +4,13 @@ _vpn() {
   local -a commands profiles
 
   commands=(
+    'all:Connect to all profiles'
     'import:Import profiles from AWS VPN Client'
     'list:List available profiles'
+    'ls:List available profiles'
     'status:Show connection status'
     'disconnect:Disconnect from a profile'
+    'down:Disconnect from a profile'
     'logs:Tail the connection log'
     'setup-sudo:Skip password prompts'
   )
@@ -29,7 +32,11 @@ for slug, p in sorted(profiles.items()):
     _describe -t commands 'command' commands -- profiles
   elif (( CURRENT == 3 )); then
     case "${words[2]}" in
-      disconnect|logs)
+      disconnect|down)
+        local -a disconnect_opts=('all:Disconnect all active connections')
+        _describe -t disconnect-opts 'option' disconnect_opts -- profiles
+        ;;
+      logs)
         _describe -t profiles 'profile' profiles
         ;;
     esac
