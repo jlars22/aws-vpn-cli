@@ -17,13 +17,13 @@ print(' '.join(profiles))
 
   case "$prev" in
     disconnect|down)
-      COMPREPLY=($(compgen -W "all $profiles" -- "$cur"))
+      mapfile -t COMPREPLY < <(compgen -W "all $profiles" -- "$cur")
       ;;
     logs)
-      COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+      mapfile -t COMPREPLY < <(compgen -W "$profiles" -- "$cur")
       ;;
     *)
-      COMPREPLY=($(compgen -W "$commands $profiles" -- "$cur"))
+      mapfile -t COMPREPLY < <(compgen -W "$commands $profiles" -- "$cur")
       ;;
   esac
 }
