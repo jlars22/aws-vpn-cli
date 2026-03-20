@@ -115,6 +115,7 @@ usage() {
   echo ""
   echo -e "${BOLD}Commands:${RESET}"
   echo -e "  ${CYAN}status${RESET}              Show connection status"
+  echo -e "  ${CYAN}all${RESET}                 Connect to all profiles"
   echo -e "  ${CYAN}disconnect${RESET} ${DIM}[profile]${RESET} Disconnect from a profile (or select)"
   echo -e "  ${CYAN}list${RESET}                List available profiles"
   echo -e "  ${CYAN}import${RESET}              Import profiles from AWS VPN Client"
@@ -220,7 +221,7 @@ _load_profiles() {
 import json, sys
 with open(sys.argv[1]) as f:
     profiles = json.load(f)
-for slug in sorted(profiles):
+for slug in profiles:
     p = profiles[slug]
     print(f\"{slug}|{p['name']}|{p['region']}\")
 " "$profiles_file"
@@ -376,6 +377,19 @@ _cleanup_stale_dns() {
 
 cmd_disconnect() {
   local slug="${1:-}"
+
+  if [[ "$slug" == "all" ]]; then
+    local active_profiles
+    active_profiles=$(_active_profiles)
+    if [[ -z "$active_profiles" ]]; then
+      info "Not connected"
+      return 0
+    fi
+    while read -r s; do
+      cmd_disconnect "$s"
+    done <<< "$active_profiles"
+    return
+  fi
 
   if [[ -z "$slug" ]]; then
     # No profile specified — pick from connected ones
@@ -662,7 +676,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
       trap - EXIT
       rm -rf "$RUNTIME_DIR"
       success "Connected to ${BOLD}${PROFILE_NAME}${RESET}"
-      exit 0
+      return 0
     fi
     sleep 1
   done
@@ -754,6 +768,29 @@ sys.exit(0 if sys.argv[2] in profiles else 1)
 " "$profiles_file" "$1" 2>/dev/null
 }
 
+cmd_connect_all() {
+  local lines
+  lines=$(_load_profiles) || {
+    warn "No profiles found. Run ${CYAN}vpn import${RESET} first."
+    exit 1
+  }
+
+  local connected=0 skipped=0
+  while IFS='|' read -r slug name region; do
+    if _is_profile_connected "$slug"; then
+      success "Already connected to ${BOLD}${slug}${RESET}"
+      (( skipped++ )) || true
+      continue
+    fi
+    cmd_connect "$slug"
+    (( connected++ )) || true
+  done <<< "$lines"
+
+  if (( connected == 0 )); then
+    info "All profiles already connected"
+  fi
+}
+
 case "${1:-}" in
   import)            cmd_import ;;
   list|ls)           cmd_list ;;
@@ -761,6 +798,7 @@ case "${1:-}" in
   disconnect|down)   cmd_disconnect "${2:-}" ;;
   setup-sudo)        cmd_setup_sudo ;;
   logs)              cmd_logs "${2:-}" ;;
+  all)               cmd_connect_all ;;
   -v|--version)      echo "aws-vpn-cli $VERSION" ;;
   -h|--help)         usage 0 ;;
   "")                cmd_select ;;
