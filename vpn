@@ -55,7 +55,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
 fi
 SAML_SERVER=(python3 "$INSTALL_DIR/saml-server.py")
 PROTO=udp
-VERSION="0.5.2"
+VERSION="0.5.3"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
 
@@ -91,6 +91,10 @@ _is_profile_connected() {
     fi
     # Stale PID file — process died
     rm -f "$pf"
+  fi
+  # Fallback: check if process is running even without a valid PID file
+  if _active_profiles | grep -qx "$slug"; then
+    return 0
   fi
   return 1
 }
