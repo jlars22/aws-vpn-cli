@@ -22,6 +22,7 @@ Supports macOS and Linux.
 - Python 3
 - `sudo` access (for establishing the tunnel)
 - [fzf](https://github.com/junegunn/fzf) (optional — enables the interactive picker when running just `vpn`)
+- `musl` (Linux only — required to run the AWS VPN Client's bundled OpenVPN binary; install with `sudo apt install musl` on Ubuntu/Debian)
 
 ### Homebrew
 
