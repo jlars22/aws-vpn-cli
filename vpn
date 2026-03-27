@@ -55,7 +55,7 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
 fi
 SAML_SERVER=(python3 "$INSTALL_DIR/saml-server.py")
 PROTO=udp
-VERSION="0.5.3"
+VERSION="0.5.4"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
 
