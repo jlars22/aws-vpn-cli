@@ -667,7 +667,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   # Start openvpn as a background daemon
   : > "$LOG_FILE"
   env -u TERMINFO sudo "$OVPN_BIN" --config "$OVPN_CONF" \
-      --verb 3 --auth-nocache --inactive 3600 \
+      --verb 3 --auth-nocache \
       --proto "$PROTO" --remote "$SRV" "$VPN_PORT" \
       --script-security 2 \
       --route-up "$INSTALL_DIR/route-up.sh" \
