@@ -54,7 +54,6 @@ if [[ -z "${OVPN_BIN:-}" ]]; then
   fi
 fi
 SAML_SERVER=(python3 "$INSTALL_DIR/saml-server.py")
-PROTO=udp
 VERSION="0.5.4"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
@@ -178,6 +177,10 @@ for p in data.get("ConnectionProfiles", []):
     host = remote_match.group(1)
     port = int(remote_match.group(2))
 
+    # Extract protocol — default to udp if not specified (OpenVPN's default)
+    proto_match = re.search(r"^proto\s+(\S+)", config, re.MULTILINE)
+    proto = proto_match.group(1) if proto_match else "udp"
+
     # Strip lines that the vpn script handles itself
     stripped = []
     for line in config.splitlines():
@@ -189,6 +192,8 @@ for p in data.get("ConnectionProfiles", []):
         if s == "auth-user-pass":
             continue
         if s.startswith("auth-retry"):
+            continue
+        if re.match(r"^proto\s+", s):
             continue
         stripped.append(line)
 
@@ -202,6 +207,7 @@ for p in data.get("ConnectionProfiles", []):
         "name": name,
         "host": host,
         "port": port,
+        "proto": proto,
         "endpoint_id": p.get("CvpnEndpointId", ""),
         "region": p.get("CvpnEndpointRegion", ""),
     }
@@ -520,7 +526,7 @@ slug = sys.argv[2]
 if slug not in profiles:
     sys.exit(1)
 p = profiles[slug]
-print(f\"{p['host']}|{p['port']}|{p['name']}\")
+print(f\"{p['host']}|{p['port']}|{p['name']}|{p.get('proto', 'udp')}\")
 " "$profiles_file" "$profile" 2>/dev/null) || {
     err "Unknown profile '${BOLD}$profile${RESET}'"
     echo ""
@@ -529,8 +535,8 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
     exit 1
   }
 
-  local VPN_HOST VPN_PORT PROFILE_NAME
-  IFS='|' read -r VPN_HOST VPN_PORT PROFILE_NAME <<< "$profile_info"
+  local VPN_HOST VPN_PORT PROFILE_NAME VPN_PROTO
+  IFS='|' read -r VPN_HOST VPN_PORT PROFILE_NAME VPN_PROTO <<< "$profile_info"
   local OVPN_CONF="$CONFIG_DIR/configs/${profile}.conf"
 
   if [[ ! -f "$OVPN_CONF" ]]; then
@@ -600,7 +606,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   local retries=3
   while ((retries-- > 0)); do
     OVPN_OUT=$("$OVPN_BIN" --config "$OVPN_CONF" --verb 3 \
-        --proto "$PROTO" --remote "${SRV}" "${VPN_PORT}" \
+        --proto "$VPN_PROTO" --remote "${SRV}" "${VPN_PORT}" \
         --server-poll-timeout 10 \
         --auth-user-pass <(printf "%s\n%s\n" "N/A" "ACS::35001") \
         2>&1 | grep AUTH_FAILED,CRV1) || true
@@ -668,7 +674,7 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   : > "$LOG_FILE"
   env -u TERMINFO sudo "$OVPN_BIN" --config "$OVPN_CONF" \
       --verb 3 --auth-nocache \
-      --proto "$PROTO" --remote "$SRV" "$VPN_PORT" \
+      --proto "$VPN_PROTO" --remote "$SRV" "$VPN_PORT" \
       --script-security 2 \
       --route-up "$INSTALL_DIR/route-up.sh" \
       --down "$INSTALL_DIR/dns-down.sh" \
