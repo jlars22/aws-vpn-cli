@@ -449,20 +449,20 @@ cmd_disconnect() {
   pf=$(_pid_file "$slug")
   step "Disconnecting from ${slug}"
 
-  # Kill this profile's openvpn process (daemon is named aws-vpn-cli-{slug})
-  env -u TERMINFO sudo pkill -f "aws-vpn-cli-${slug}" 2>/dev/null || true
+  # Kill this profile's openvpn process (match config path for exact slug matching)
+  env -u TERMINFO sudo pkill -f "configs/${slug}\.conf" 2>/dev/null || true
 
   # Wait briefly for the down script to restore DNS
   sleep 1
 
   # Force-kill if still running
-  if pgrep -f "aws-vpn-cli-${slug}" > /dev/null 2>&1; then
-    env -u TERMINFO sudo pkill -9 -f "aws-vpn-cli-${slug}" 2>/dev/null || true
+  if pgrep -f "configs/${slug}\.conf" > /dev/null 2>&1; then
+    env -u TERMINFO sudo pkill -9 -f "configs/${slug}\.conf" 2>/dev/null || true
     sleep 1
   fi
   _cleanup_stale_dns "$slug"
 
-  if pgrep -f "aws-vpn-cli-${slug}" > /dev/null 2>&1; then
+  if pgrep -f "configs/${slug}\.conf" > /dev/null 2>&1; then
     warn "Process may still be running for ${BOLD}${slug}${RESET}"
   else
     rm -f "$pf"
@@ -743,8 +743,8 @@ cmd_setup_sudo() {
     rule=$(cat <<SUDOERS
 # Allow aws-vpn-cli to manage VPN connections without a password
 $group ALL=(root) NOPASSWD: $symlink_path *
-$group ALL=(root) NOPASSWD: /usr/bin/pkill -f aws-vpn-cli-*
-$group ALL=(root) NOPASSWD: /usr/bin/pkill -9 -f aws-vpn-cli-*
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -f configs/*
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -9 -f configs/*
 $group ALL=(root) NOPASSWD: /usr/sbin/scutil
 SUDOERS
 )
@@ -752,8 +752,8 @@ SUDOERS
     rule=$(cat <<SUDOERS
 # Allow aws-vpn-cli to manage VPN connections without a password
 $group ALL=(root) NOPASSWD: $symlink_path *
-$group ALL=(root) NOPASSWD: /usr/bin/pkill -f aws-vpn-cli-*
-$group ALL=(root) NOPASSWD: /usr/bin/pkill -9 -f aws-vpn-cli-*
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -f configs/*
+$group ALL=(root) NOPASSWD: /usr/bin/pkill -9 -f configs/*
 $group ALL=(root) NOPASSWD: /usr/bin/resolvectl
 SUDOERS
 )
