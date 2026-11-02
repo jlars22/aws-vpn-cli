@@ -821,7 +821,8 @@ print(f\"{p.get('host', '')}|{p.get('port', '')}|{p['name']}\")
 _connect_native() {
   local name="$1"
 
-  info "Connecting to ${BOLD}${name}${RESET} ${DIM}(complete SSO in the browser)${RESET}"
+  step "Authenticating"
+  info "Connecting to ${BOLD}${name}${RESET}..."
   local out
   if ! out=$(_acvc connect --profile-name "$name" 2>&1); then
     err "${out:-Connect failed}"
@@ -829,11 +830,19 @@ _connect_native() {
   fi
 
   # The daemon owns the SAML callback and tunnel, so poll until it settles.
+  # The handshake after SSO can take ~10s, so report each phase to show progress.
   # NotConnected alone can be the moment before the attempt registers; only an
   # attached error means it actually failed.
-  local status message attempts=120
+  local status message prev="" attempts=240
   while ((attempts-- > 0)); do
     IFS='|' read -r status message <<< "$(_native_status "$name")"
+    if [[ "$status" != "$prev" ]]; then
+      case "$status" in
+        WaitingForIdentity) info "Waiting for SSO in the browser..." ;;
+        Connecting) [[ "$prev" == WaitingForIdentity ]] && success "Authenticated" && step "Establishing tunnel" ;;
+      esac
+      prev="$status"
+    fi
     case "$status" in
       Connected)
         success "Connected to ${BOLD}${name}${RESET}"
@@ -846,7 +855,7 @@ _connect_native() {
         fi
         ;;
     esac
-    sleep 1
+    sleep 0.5
   done
 
   warn "Still ${status:-connecting} - check ${DIM}vpn status${RESET} or ${DIM}vpn logs${RESET}"
