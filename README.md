@@ -73,6 +73,8 @@ ln -s /path/to/aws-vpn-cli/_vpn ~/.zsh/completions/_vpn
 
 Imports your existing AWS VPN Client profiles, starts a local SAML server on `127.0.0.1:35001`, initiates an OpenVPN handshake to get the SSO URL, opens your browser for authentication, then establishes the tunnel using the bundled `acvc-openvpn` binary with `sudo`. DNS is configured via `scutil` (macOS) or `resolvectl` (Linux).
 
+With AWS VPN Client 6+ on macOS, OpenVPN runs inside the client's own daemon and there is no `acvc-openvpn` binary. `vpn` detects this and delegates to the bundled `aws-vpn-client` CLI instead: the daemon handles SSO, the tunnel and DNS, so `sudo` and `vpn setup-sudo` are not needed, and `vpn logs` follows the daemon log in `/var/log/AWSVPNClient`.
+
 No data leaves your machine beyond normal SSO/VPN traffic.
 
 ## Credits

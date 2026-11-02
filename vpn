@@ -59,6 +59,16 @@ VERSION="0.5.4"
 
 AWS_VPN_CLIENT_PROFILES="$HOME/.config/AWSVPNClient/ConnectionProfiles"
 
+# AWS VPN Client 6+ embeds OpenVPN in a root daemon and ships its own CLI, so
+# there is no acvc-openvpn binary to drive. Delegate to that CLI when present.
+ACVC_CLI="${ACVC_CLI:-/Applications/AWS VPN Client/AWS VPN Client.app/Contents/MacOS/aws-vpn-client}"
+ACVC_DAEMON_LOG_DIR="/var/log/AWSVPNClient"
+if [[ "$OS" == "Darwin" && -x "$ACVC_CLI" ]]; then
+  BACKEND=native
+else
+  BACKEND=legacy
+fi
+
 # Colors
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -99,14 +109,47 @@ _is_profile_connected() {
   return 1
 }
 
+_acvc() { "$ACVC_CLI" "$@" < /dev/null; }
+
+# Profile name for a slug (the native CLI addresses profiles by name)
+_profile_name() {
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f)[sys.argv[2]]['name'])
+" "$CONFIG_DIR/profiles.json" "$1"
+}
+
+# Prints "status|error message" for a profile from the native CLI
+_native_status() {
+  _acvc get-connection-status --profile-name "$1" 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+e = (d.get('latest-connection-attempt') or {}).get('error') or {}
+print(f\"{d.get('connection-status', '')}|{e.get('message', '')}\")
+"
+}
+
 _active_profiles() {
   # Return all connected profile slugs, one per line
+  if [[ "$BACKEND" == native ]]; then
+    _acvc list-connections 2>/dev/null | python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    slugs = {p['name']: slug for slug, p in json.load(f).items()}
+for c in json.load(sys.stdin):
+    name = c.get('profile-name') if isinstance(c, dict) else c
+    print(slugs.get(name, name))
+" "$CONFIG_DIR/profiles.json" 2>/dev/null | sort -u
+    return
+  fi
   # shellcheck disable=SC2009  # need ps output format that pgrep can't provide
   ps -eo args= 2>/dev/null | grep -o "aws-vpn-cli/configs/[^ ]*\.conf" | sed 's|.*/||;s|\.conf||' | sort -u
 }
 
 _profile_uptime() {
   local slug="$1"
+  [[ "$BACKEND" == native ]] && return 0
   # shellcheck disable=SC2009  # need etime from ps which pgrep can't provide
   ps -eo etime=,args= 2>/dev/null | grep "aws-vpn-cli/configs/${slug}\.conf" | grep -v grep | head -1 | awk '{print $1}' | sed 's/^ *//'
 }
@@ -128,7 +171,52 @@ usage() {
   exit "${1:-0}"
 }
 
+_import_native() {
+  step "Importing profiles from AWS VPN Client"
+  mkdir -p "$CONFIG_DIR"
+
+  export ACVC_CLI CONFIG_DIR
+  python3 << 'PYEOF'
+import json, os, re, subprocess
+
+cli = os.environ["ACVC_CLI"]
+config_dir = os.environ["CONFIG_DIR"]
+
+def acvc(*args):
+    return subprocess.run([cli, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True).stdout
+
+profiles = {}
+for p in json.loads(acvc("list-profiles")):
+    name = p["profile-name"]
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    # Avoid slug collisions by appending a numeric suffix
+    base_slug = slug
+    counter = 2
+    while slug in profiles:
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    # Region is only exposed through the endpoint hostname in the config
+    config = acvc("get-config", "--profile-name", name)
+    region = re.search(r"^remote\s+\S*\.clientvpn\.([a-z0-9-]+)\.amazonaws\.com", config, re.MULTILINE)
+
+    profiles[slug] = {"name": name, "region": region.group(1) if region else ""}
+    print(f"  \033[0;32m✓\033[0m {name} \033[2m->\033[0m \033[0;36m{slug}\033[0m")
+
+with open(os.path.join(config_dir, "profiles.json"), "w") as f:
+    json.dump(profiles, f, indent=2)
+
+print(f"\n\033[0;32m✓\033[0m {len(profiles)} profile(s) imported")
+PYEOF
+}
+
 cmd_import() {
+  if [[ "$BACKEND" == native ]]; then
+    _import_native
+    return
+  fi
+
   if [[ ! -f "$AWS_VPN_CLIENT_PROFILES" ]]; then
     err "AWS VPN Client is not installed or has no profiles configured"
     info "Install it from ${CYAN}https://aws.amazon.com/vpn/client-vpn/${RESET}"
@@ -449,6 +537,16 @@ cmd_disconnect() {
   pf=$(_pid_file "$slug")
   step "Disconnecting from ${slug}"
 
+  if [[ "$BACKEND" == native ]]; then
+    local out
+    if ! out=$(_acvc disconnect --profile-name "$(_profile_name "$slug")" 2>&1); then
+      err "$out"
+      return 1
+    fi
+    success "Disconnected from ${BOLD}${slug}${RESET}"
+    return 0
+  fi
+
   # Kill this profile's openvpn process (daemon is named aws-vpn-cli-{slug})
   env -u TERMINFO sudo pkill -f "aws-vpn-cli-${slug}" 2>/dev/null || true
 
@@ -486,6 +584,18 @@ cmd_logs() {
     exit 1
   fi
 
+  if [[ "$BACKEND" == native ]]; then
+    local lf
+    # shellcheck disable=SC2012  # daemon log names are date-stamped, no odd characters
+    lf=$(ls -t "$ACVC_DAEMON_LOG_DIR"/aws_vpn_client_daemon_*.log 2>/dev/null | head -1)
+    if [[ -z "$lf" ]]; then
+      info "No daemon log found in ${BOLD}${ACVC_DAEMON_LOG_DIR}${RESET}"
+      exit 1
+    fi
+    tail -f "$lf" | grep --line-buffered -F "profile=$(_profile_name "$slug")"
+    return
+  fi
+
   local lf
   lf=$(_log_file "$slug")
   if [[ ! -f "$lf" ]]; then
@@ -520,7 +630,7 @@ slug = sys.argv[2]
 if slug not in profiles:
     sys.exit(1)
 p = profiles[slug]
-print(f\"{p['host']}|{p['port']}|{p['name']}\")
+print(f\"{p.get('host', '')}|{p.get('port', '')}|{p['name']}\")
 " "$profiles_file" "$profile" 2>/dev/null) || {
     err "Unknown profile '${BOLD}$profile${RESET}'"
     echo ""
@@ -531,6 +641,12 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
 
   local VPN_HOST VPN_PORT PROFILE_NAME
   IFS='|' read -r VPN_HOST VPN_PORT PROFILE_NAME <<< "$profile_info"
+
+  if [[ "$BACKEND" == native ]]; then
+    _connect_native "$PROFILE_NAME"
+    return
+  fi
+
   local OVPN_CONF="$CONFIG_DIR/configs/${profile}.conf"
 
   if [[ ! -f "$OVPN_CONF" ]]; then
@@ -702,10 +818,52 @@ print(f\"{p['host']}|{p['port']}|{p['name']}\")
   fi
 }
 
+_connect_native() {
+  local name="$1"
+
+  info "Connecting to ${BOLD}${name}${RESET} ${DIM}(complete SSO in the browser)${RESET}"
+  local out
+  if ! out=$(_acvc connect --profile-name "$name" 2>&1); then
+    err "${out:-Connect failed}"
+    exit 1
+  fi
+
+  # The daemon owns the SAML callback and tunnel, so poll until it settles.
+  # NotConnected alone can be the moment before the attempt registers; only an
+  # attached error means it actually failed.
+  local status message attempts=120
+  while ((attempts-- > 0)); do
+    IFS='|' read -r status message <<< "$(_native_status "$name")"
+    case "$status" in
+      Connected)
+        success "Connected to ${BOLD}${name}${RESET}"
+        return 0
+        ;;
+      NotConnected|Disconnected)
+        if [[ -n "$message" ]]; then
+          err "$message"
+          exit 1
+        fi
+        ;;
+    esac
+    sleep 1
+  done
+
+  warn "Still ${status:-connecting} - check ${DIM}vpn status${RESET} or ${DIM}vpn logs${RESET}"
+}
+
 cmd_setup_sudo() {
   local sudoers_file="/etc/sudoers.d/aws-vpn-cli"
   local symlink_dir="/usr/local/lib/aws-vpn-cli"
   local symlink_path="$symlink_dir/acvc-openvpn"
+
+  if [[ "$BACKEND" == native ]]; then
+    success "Not needed - AWS VPN Client 6+ connects through its own daemon"
+    if [[ -e "$sudoers_file" || -L "$symlink_path" ]]; then
+      info "Remove the old setup with: ${CYAN}sudo rm -f $sudoers_file $symlink_path${RESET}"
+    fi
+    return
+  fi
 
   if [[ -f "$sudoers_file" ]] && sudo -n "$symlink_path" --version > /dev/null 2>&1; then
     success "Passwordless sudo is already configured"
