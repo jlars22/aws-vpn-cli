@@ -1,7 +1,6 @@
 ---
 name: release
 description: Cut a new aws-vpn-cli release - bump VERSION, tag, publish the GitHub release, and update the Homebrew formula in jlars22/homebrew-tools. Use when asked to release, ship, publish or tag a new version.
-disable-model-invocation: true
 ---
 
 # Release aws-vpn-cli
